@@ -13,12 +13,16 @@ export const Api = {
   },
 
   getRole() {
-    return localStorage.getItem(ROLE_STORAGE_KEY) || 'staff';
+    return localStorage.getItem(ROLE_STORAGE_KEY) || 'admin';
+  },
+
+  setRole(role) {
+    localStorage.setItem(ROLE_STORAGE_KEY, role);
   },
 
   setAuth(pin, role) {
-    localStorage.setItem(PIN_STORAGE_KEY, pin);
-    localStorage.setItem(ROLE_STORAGE_KEY, role);
+    localStorage.setItem(PIN_STORAGE_KEY, pin || '');
+    localStorage.setItem(ROLE_STORAGE_KEY, role || 'admin');
   },
 
   clearAuth() {
@@ -28,8 +32,10 @@ export const Api = {
 
   async request(path, options = {}) {
     const pin = this.getPin();
+    const role = this.getRole();
     const headers = {
       'Content-Type': 'application/json',
+      'X-Role': role,
       ...(options.headers || {})
     };
 

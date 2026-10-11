@@ -37,13 +37,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   initModals();
   initActionButtons();
 
-  // Check if PIN already saved
-  const savedPin = Api.getPin();
-  if (!savedPin) {
-    showPinModal(true);
-  } else {
-    await loadInitialData();
-  }
+  // Load directly without mandatory PIN prompt
+  state.role = Api.getRole() || 'admin';
+  await loadInitialData();
 });
 
 function initServiceWorker() {
@@ -640,9 +636,7 @@ function renderCustomersTab() {
       </div>
       <div class="list-item-actions">
         <button class="btn-table-icon btn-edit-customer" data-id="${c.id}" title="Edit">✏️</button>
-        ${state.role === 'admin' ? `
-          <button class="btn-table-icon delete btn-del-customer" data-id="${c.id}" title="Delete">🗑</button>
-        ` : ''}
+        <button class="btn-table-icon delete btn-del-customer" data-id="${c.id}" title="Delete Customer">🗑</button>
       </div>
     </div>
   `).join('');
@@ -1045,9 +1039,9 @@ function initModals() {
     }
   });
 
-  // Header Switch PIN button
+  // Header Switch Role button (instant 1-tap toggle without PIN)
   document.getElementById('btnSwitchRole')?.addEventListener('click', () => {
-    showPinModal(false);
+    toggleRole();
   });
 
   // Add Item button listener
@@ -1081,11 +1075,19 @@ function initModals() {
   });
 }
 
+function toggleRole() {
+  const newRole = state.role === 'admin' ? 'staff' : 'admin';
+  state.role = newRole;
+  Api.setRole(newRole);
+  updateRoleBadge();
+  renderItemsTab();
+  renderCustomersTab();
+  renderSettingsTab();
+  showToast(`Switched to ${newRole.toUpperCase()} mode`, 'success');
+}
+
 function showPinModal(isFirstTime = false) {
-  const modal = document.getElementById('pinModal');
-  const err = document.getElementById('pinError');
-  if (err) err.style.display = 'none';
-  if (modal) modal.style.display = 'flex';
+  toggleRole();
 }
 
 // --- TOAST NOTIFICATIONS ---

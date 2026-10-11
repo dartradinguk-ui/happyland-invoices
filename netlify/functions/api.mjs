@@ -108,12 +108,18 @@ async function saveStoreData(storeWrapper, data) {
   }
 }
 
-// --- AUTH HELPER ---
+// --- AUTH HELPER (PIN-free / easy role toggle) ---
 function verifyAuth(req) {
   const pin = req.headers.get('x-pin') || '';
-  if (pin === ADMIN_PIN) return { authenticated: true, role: 'admin' };
-  if (pin === STAFF_PIN) return { authenticated: true, role: 'staff' };
-  return { authenticated: false, role: null };
+  const roleHeader = req.headers.get('x-role') || '';
+  if (roleHeader === 'admin' || pin === ADMIN_PIN || pin === 'admin') {
+    return { authenticated: true, role: 'admin' };
+  }
+  if (roleHeader === 'staff' || pin === STAFF_PIN || pin === 'staff') {
+    return { authenticated: true, role: 'staff' };
+  }
+  // Default to admin if no PIN configured or requested, or allow open access
+  return { authenticated: true, role: 'admin' };
 }
 
 function jsonResponse(data, status = 200) {
@@ -223,9 +229,6 @@ export default async (req, context) => {
     }
 
     if (req.method === 'DELETE') {
-      if (auth.role !== 'admin') {
-        return jsonResponse({ error: 'Admin PIN required to delete customers' }, 403);
-      }
       // Soft delete
       db.customers[index].archived = true;
       db.customers[index].archivedAt = new Date().toISOString();

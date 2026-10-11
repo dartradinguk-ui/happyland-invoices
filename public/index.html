@@ -33,9 +33,14 @@
       </div>
     </div>
     <div class="header-actions">
-      <button id="btnSwitchRole" class="btn-action btn-action-secondary" style="height:32px; font-size:12px; padding:0 10px; border-radius:20px; border:none; background:rgba(255,255,255,0.25); color:white; font-weight:700;" title="Tap to switch between Staff and Admin">
-        <span id="roleBadge">ADMIN</span> ⇄
-      </button>
+      <div class="role-toggle-switch" role="group" aria-label="Role selector">
+        <button type="button" class="role-toggle-btn active" id="btnRoleStaff" data-role="staff">
+          Staff
+        </button>
+        <button type="button" class="role-toggle-btn" id="btnRoleAdmin" data-role="admin">
+          Admin ⚙️
+        </button>
+      </div>
     </div>
   </header>
 
@@ -148,7 +153,7 @@
       </div>
 
       <div id="itemsAdminNotice" class="alert alert-info">
-        🔒 Prices are fixed for staff. Enter <strong>Admin PIN</strong> in ⚙️ Settings or top-right 🔑 to amend prices.
+        🔒 Prices are locked in Staff mode. Switch to <strong>Admin ⚙️</strong> in the top header to amend prices.
       </div>
 
       <div id="itemsListContainer">
@@ -173,7 +178,7 @@
         <h2 style="font-size: 16px; margin-bottom: 12px;">Bakery & Bank Details</h2>
 
         <div id="settingsStaffNotice" class="alert alert-info">
-          ℹ️ Logged in as <strong>Staff</strong>. Manager settings are locked.
+          ℹ️ Currently in <strong>Staff</strong> mode. Switch to <strong>Admin ⚙️</strong> in the top header to edit bakery & bank settings.
         </div>
 
         <form id="settingsForm">
@@ -346,35 +351,6 @@
     </div>
   </div>
 
-  <!-- PIN Entry / Switch Modal -->
-  <div id="pinModal" class="modal-overlay">
-    <div class="modal-sheet" style="max-width: 400px; text-align: center;">
-      <div class="modal-header">
-        <h3 class="modal-title" style="margin: 0 auto;">🔐 Happyland Login</h3>
-      </div>
-      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
-        Enter your Staff PIN or Admin PIN to continue.
-      </p>
-      <form id="pinForm">
-        <div class="form-group">
-          <input type="password" 
-                 id="pinInput" 
-                 class="form-control" 
-                 inputmode="numeric" 
-                 pattern="[0-9]*" 
-                 placeholder="Enter 4-digit PIN" 
-                 style="text-align: center; font-size: 24px; letter-spacing: 6px; height: 50px;" 
-                 required />
-        </div>
-        <div id="pinError" class="alert alert-danger" style="display:none; margin-top:8px;"></div>
-        <div style="margin-top: 14px;">
-          <button type="submit" class="btn-action btn-action-primary" style="width: 100%; height: 46px; font-size: 16px;">
-            Unlock
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
 
   <!-- Application Script (ES Module) -->
   <script type="module" src="/js/app.js"></script>

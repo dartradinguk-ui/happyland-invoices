@@ -79,10 +79,11 @@ async function loadInitialData() {
 }
 
 function updateRoleBadge() {
-  const badge = document.getElementById('roleBadge');
-  if (badge) {
-    badge.textContent = state.role.toUpperCase();
-    badge.className = `role-badge ${state.role}`;
+  const staffBtn = document.getElementById('btnRoleStaff');
+  const adminBtn = document.getElementById('btnRoleAdmin');
+  if (staffBtn && adminBtn) {
+    staffBtn.classList.toggle('active', state.role === 'staff');
+    adminBtn.classList.toggle('active', state.role === 'admin');
   }
 }
 
@@ -1039,9 +1040,13 @@ function initModals() {
     }
   });
 
-  // Header Switch Role button (instant 1-tap toggle without PIN)
-  document.getElementById('btnSwitchRole')?.addEventListener('click', () => {
-    toggleRole();
+  // Segmented Role Switcher buttons (Staff / Admin)
+  document.getElementById('btnRoleStaff')?.addEventListener('click', () => {
+    setRoleMode('staff');
+  });
+
+  document.getElementById('btnRoleAdmin')?.addEventListener('click', () => {
+    setRoleMode('admin');
   });
 
   // Add Item button listener
@@ -1056,10 +1061,6 @@ function initModals() {
 
   // Backup Export
   document.getElementById('btnExportBackup')?.addEventListener('click', async () => {
-    if (state.role !== 'admin') {
-      alert('Admin PIN required to export data.');
-      return;
-    }
     try {
       const backup = await Api.exportBackup();
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -1075,8 +1076,8 @@ function initModals() {
   });
 }
 
-function toggleRole() {
-  const newRole = state.role === 'admin' ? 'staff' : 'admin';
+function setRoleMode(newRole) {
+  if (state.role === newRole) return;
   state.role = newRole;
   Api.setRole(newRole);
   updateRoleBadge();
@@ -1084,6 +1085,11 @@ function toggleRole() {
   renderCustomersTab();
   renderSettingsTab();
   showToast(`Switched to ${newRole.toUpperCase()} mode`, 'success');
+}
+
+function toggleRole() {
+  const nextRole = state.role === 'admin' ? 'staff' : 'admin';
+  setRoleMode(nextRole);
 }
 
 function showPinModal(isFirstTime = false) {

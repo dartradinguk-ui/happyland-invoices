@@ -50,17 +50,21 @@ function initServiceWorker() {
   }
 }
 
-// --- BOOTSTRAP & SYNC ---
+// --- BOOTSTRAP & REAL-TIME SYNC ---
 async function loadInitialData() {
+  await syncLatestData(false);
+  loadDraft();
+  initAutoSync();
+}
+
+async function syncLatestData(silent = true) {
   try {
     const data = await Api.bootstrap();
-    state.role = data.role || 'staff';
     state.settings = data.settings || {};
     state.customers = data.customers || [];
     state.items = data.items || [];
 
     updateRoleBadge();
-    loadDraft();
     renderCustomerSelect();
     renderItemsTab();
     renderCustomersTab();
@@ -68,14 +72,30 @@ async function loadInitialData() {
     renderInvoiceItemCards();
     updateGrandTotal();
   } catch (err) {
-    console.error('Bootstrap error:', err);
-    if (err.status === 401) {
-      alert('Your PIN session has expired. Please enter your PIN.');
-      showPinModal(true);
-    } else {
-      showToast('Could not sync with server. Operating in offline mode.', 'info');
+    if (!silent) {
+      console.warn('Sync error:', err);
+      showToast('Operating in offline cache mode.', 'info');
     }
   }
+}
+
+// Automatically sync across all staff phones
+function initAutoSync() {
+  // 1. Sync when user switches back to the tab or unlocks phone
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      syncLatestData(true);
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    syncLatestData(true);
+  });
+
+  // 2. Periodic sync every 25 seconds in background
+  setInterval(() => {
+    syncLatestData(true);
+  }, 25000);
 }
 
 function updateRoleBadge() {
@@ -168,7 +188,8 @@ function switchTab(tabName) {
     bottomBar.style.display = tabName === 'invoice' ? 'block' : 'none';
   }
 
-  // Auto-refresh tabs when viewed
+  // Auto-refresh tabs and sync cloud data when viewed
+  syncLatestData(true);
   if (tabName === 'history') loadHistoryTab();
   if (tabName === 'customers') renderCustomersTab();
   if (tabName === 'items') renderItemsTab();

@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Happyland Bakery Invoice Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .invoice-form {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        input[type="number"], input[type="date"] {
+            width: 80px;
+            padding: 5px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .invoice-preview {
+            margin-top: 30px;
+        }
+        .company-header {
+            margin-bottom: 20px;
+        }
+        .button-group {
+            margin-top: 20px;
+        }
+        .payment-details {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f2f2f2;
+            border-radius: 4px;
+        }
+        .payment-header {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Happyland Bakery Invoice Generator</h1>
+        
+        <div class="invoice-form">
+            <h2>Invoice Details</h2>
+            <div>
+                <label for="company">Company:</label>
+                <select id="company">
+                    <option value="Mayyil 1 - Knightsbridge">Mayyil 1 - Knightsbridge</option>
+                    <option value="Mayyil 2 - Notting Hill Gate">Mayyil 2 - Notting Hill Gate</option>
+                    <option value="Mayyil on the Wheel - Park Royal">Mayyil on the Wheel - Park Royal</option>
+                    <option value="Beit El Zaytoun Park Royal">Beit El Zaytoun Park Royal</option>
+                </select>
+            </div>
+            <div>
+                <label for="weekEnding">Week Ending:</label>
+                <input type="date" id="weekEnding">
+            </div>
+            
+            <h3>Daily Quantities</h3>
+            <table id="itemsTable">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Mon</th>
+                        <th>Tues</th>
+                        <th>Wed</th>
+                        <th>Thu</th>
+                        <th>Fri</th>
+                        <th>Sat</th>
+                        <th>Sun</th>
+                        <th>Cost per Unit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Baguette</td>
+                        <td><input type="number" min="0" class="qty" data-day="mon"></td>
+                        <td><input type="number" min="0" class="qty" data-day="tues"></td>
+                        <td><input type="number" min="0" class="qty" data-day="wed"></td>
+                        <td><input type="number" min="0" class="qty" data-day="thu"></td>
+                        <td><input type="number" min="0" class="qty" data-day="fri"></td>
+                        <td><input type="number" min="0" class="qty" data-day="sat"></td>
+                        <td><input type="number" min="0" class="qty" data-day="sun"></td>
+                        <td><input type="number" min="0" step="0.01" value="0.55" class="cost"></td>
+                    </tr>
+                    <tr>
+                        <td>Burger Bun</td>
+                        <td><input type="number" min="0" class="qty" data-day="mon"></td>
+                        <td><input type="number" min="0" class="qty" data-day="tues"></td>
+                        <td><input type="number" min="0" class="qty" data-day="wed"></td>
+                        <td><input type="number" min="0" class="qty" data-day="thu"></td>
+                        <td><input type="number" min="0" class="qty" data-day="fri"></td>
+                        <td><input type="number" min="0" class="qty" data-day="sat"></td>
+                        <td><input type="number" min="0" class="qty" data-day="sun"></td>
+                        <td><input type="number" min="0" step="0.01" value="0.55" class="cost"></td>
+                    </tr>
+                    <tr>
+                        <td>Lebanese Bread Small</td>
+                        <td><input type="number" min="0" class="qty" data-day="mon"></td>
+                        <td><input type="number" min="0" class="qty" data-day="tues"></td>
+                        <td><input type="number" min="0" class="qty" data-day="wed"></td>
+                        <td><input type="number" min="0" class="qty" data-day="thu"></td>
+                        <td><input type="number" min="0" class="qty" data-day="fri"></td>
+                        <td><input type="number" min="0" class="qty" data-day="sat"></td>
+                        <td><input type="number" min="0" class="qty" data-day="sun"></td>
+                        <td><input type="number" min="0" step="0.01" value="0.30" class="cost"></td>
+                    </tr>
+                    <tr>
+                        <td>Lebanese Bread Large</td>
+                        <td><input type="number" min="0" class="qty" data-day="mon"></td>
+                        <td><input type="number" min="0" class="qty" data-day="tues"></td>
+                        <td><input type="number" min="0" class="qty" data-day="wed"></td>
+                        <td><input type="number" min="0" class="qty" data-day="thu"></td>
+                        <td><input type="number" min="0" class="qty" data-day="fri"></td>
+                        <td><input type="number" min="0" class="qty" data-day="sat"></td>
+                        <td><input type="number" min="0" class="qty" data-day="sun"></td>
+                        <td><input type="number" min="0" step="0.01" value="0.50" class="cost"></td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="button-group">
+                <button id="generateBtn">Generate Invoice</button>
+                <button id="downloadPdfBtn" disabled>Download PDF</button>
+            </div>
+        </div>
+        
+        <div class="invoice-preview" id="invoicePreview">
+            <!-- Invoice will be generated here -->
+        </div>
+    </div>
+
+    <script>
+        // Initialize jsPDF
+        const { jsPDF } = window.jspdf;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set default week ending date to next Sunday
+            const today = new Date();
+            const nextSunday = new Date(today);
+            nextSunday.setDate(today.getDate() + (7 - today.getDay()) % 7);
+            const nextSundayFormatted = nextSunday.toISOString().split('T')[0];
+            document.getElementById('weekEnding').value = nextSundayFormatted;
+            
+            // Generate random invoice number
+            function generateInvoiceNumber() {
+                return Math.floor(100000 + Math.random() * 900000);
+            }
+            
+            // Store invoice data for PDF generation
+            let currentInvoiceData = null;
+            
+            // Generate invoice
+            document.getElementById('generateBtn').addEventListener('click', function() {
+                const company = document.getElementById('company').value;
+                const weekEndingDate = document.getElementById('weekEnding').value;
+                const invoiceNo = generateInvoiceNumber();
+                
+                // Format week ending date
+                const dateObj = new Date(weekEndingDate);
+                const weekEndingFormatted = dateObj.toLocaleDateString('en-GB', {day: '2-digit', month: '2-digit', year: 'numeric'}).replace(/\//g, '.');
+                
+                // Process items
+                const rows = document.querySelectorAll('#itemsTable tbody tr');
+                let itemsHtml = '';
+                let tableData = [];
+                let grandTotal = 0;
+                
+                rows.forEach(row => {
+                    const itemName = row.cells[0].textContent;
+                    const cost = parseFloat(row.querySelector('.cost').value);
+                    
+                    let mon = parseInt(row.querySelector('[data-day="mon"]').value) || 0;
+                    let tues = parseInt(row.querySelector('[data-day="tues"]').value) || 0;
+                    let wed = parseInt(row.querySelector('[data-day="wed"]').value) || 0;
+                    let thu = parseInt(row.querySelector('[data-day="thu"]').value) || 0;
+                    let fri = parseInt(row.querySelector('[data-day="fri"]').value) || 0;
+                    let sat = parseInt(row.querySelector('[data-day="sat"]').value) || 0;
+                    let sun = parseInt(row.querySelector('[data-day="sun"]').value) || 0;
+                    
+                    const total = mon + tues + wed + thu + fri + sat + sun;
+                    const itemTotal = total * cost;
+                    grandTotal += itemTotal;
+                    
+                    // For HTML preview
+                    itemsHtml += `
+                        <tr>
+                            <td>${itemName}</td>
+                            <td>${mon || ''}</td>
+                            <td>${tues || ''}</td>
+                            <td>${wed || ''}</td>
+                            <td>${thu || ''}</td>
+                            <td>${fri || ''}</td>
+                            <td>${sat || ''}</td>
+                            <td>${sun || ''}</td>
+                            <td>${total}</td>
+                            <td>£${cost.toFixed(2)}</td>
+                            <td>£${itemTotal.toFixed(2)}</td>
+                        </tr>
+                    `;
+                    
+                    // For PDF table
+                    tableData.push([
+                        itemName,
+                        mon || '',
+                        tues || '',
+                        wed || '',
+                        thu || '',
+                        fri || '',
+                        sat || '',
+                        sun || '',
+                        total,
+                        `£${cost.toFixed(2)}`,
+                        `£${itemTotal.toFixed(2)}`
+                    ]);
+                });
+                
+                // Store data for PDF
+                currentInvoiceData = {
+                    company,
+                    invoiceNo,
+                    weekEndingFormatted,
+                    tableData,
+                    grandTotal
+                };
+                
+                // Enable PDF button
+                document.getElementById('downloadPdfBtn').disabled = false;
+                
+                // Generate the invoice HTML
+                let invoiceHtml = `
+                    <div class="invoice">
+                        <div class="company-header">
+                            <h2>Happyland Bakery Ltd</h2>
+                        </div>
+                        
+                        <table>
+                            <tr>
+                                <td>Invoice No:</td>
+                                <td>${invoiceNo}</td>
+                            </tr>
+                            <tr>
+                                <td>Week Ending:</td>
+                                <td>${weekEndingFormatted}</td>
+                            </tr>
+                        </table>
+                        
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Mon</th>
+                                    <th>Tues</th>
+                                    <th>Wed</th>
+                                    <th>Thu</th>
+                                    <th>Fri</th>
+                                    <th>Sat</th>
+                                    <th>Sun</th>
+                                    <th>Total</th>
+                                    <th>Cost</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${itemsHtml}
+                                <tr>
+                                    <td colspan="8"></td>
+                                    <td colspan="2"><strong>Sub Total:</strong></td>
+                                    <td><strong>£${grandTotal.toFixed(2)}</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div class="payment-details">
+                            <div class="payment-header">Happyland Bakery Ltd</div>
+                            <p><strong>Invoice To:</strong> ${company}</p>
+                            <p><strong>Account Number:</strong> 30623245</p>
+                            <p><strong>Sort Code:</strong> 20-92-60</p>
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('invoicePreview').innerHTML = invoiceHtml;
+            });
+            
+            // Generate PDF
+            document.getElementById('downloadPdfBtn').addEventListener('click', function() {
+                if (!currentInvoiceData) return;
+                
+                const { company, invoiceNo, weekEndingFormatted, tableData, grandTotal } = currentInvoiceData;
+                
+                // Create new PDF document
+                const doc = new jsPDF();
+                
+                // Set document properties
+                doc.setProperties({
+                    title: `Invoice ${invoiceNo}`,
+                    subject: `Invoice for ${company}`,
+                    author: 'Happyland Bakery Invoice Generator'
+                });
+                
+                // Add company header
+                doc.setFontSize(18);
+                doc.text("Happyland Bakery Ltd", 14, 20);
+                
+                // Add invoice info
+                doc.setFontSize(12);
+                doc.text(`Invoice No: ${invoiceNo}`, 14, 35);
+                doc.text(`Week Ending: ${weekEndingFormatted}`, 14, 45);
+                doc.text(`Invoice To: ${company}`, 14, 55);
+                
+                // Add table
+                doc.autoTable({
+                    startY: 65,
+                    head: [['Item', 'Mon', 'Tues', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Total', 'Cost', 'Total']],
+                    body: tableData,
+                    foot: [
+                        [
+                            {content: 'Sub Total:', colSpan: 9, styles: {halign: 'right', fontStyle: 'bold'}},
+                            {content: `£${grandTotal.toFixed(2)}`, styles: {fontStyle: 'bold'}}
+                        ]
+                    ],
+                    margin: {top: 65},
+                    styles: {
+                        fontSize: 9,
+                        cellPadding: 3,
+                        overflow: 'linebreak'
+                    },
+                    headStyles: {
+                        fillColor: [220, 220, 220],
+                        textColor: 0,
+                        fontStyle: 'bold'
+                    }
+                });
+                
+                // Add payment details with header
+                const finalY = doc.lastAutoTable.finalY || 65;
+                doc.setFontSize(12);
+                doc.setFont(undefined, 'bold');
+                doc.text("Happyland Bakery Ltd", 14, finalY + 20);
+                doc.setFont(undefined, 'normal');
+                doc.text("Account Number: 30623245", 14, finalY + 30);
+                doc.text("Sort Code: 20-92-60", 14, finalY + 40);
+                
+                // Save the PDF
+                doc.save(`Happyland_Bakery_Invoice_${company.replace(/\s+/g, '_')}_${invoiceNo}.pdf`);
+            });
+        });
+    </script>
+</body>
+</html>

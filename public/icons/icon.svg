@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#d97706;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#92400e;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-opacity="0.25" />
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="100" fill="url(#grad)"/>
+  <g filter="url(#shadow)" fill="#ffffff" transform="translate(64, 80) scale(0.75)">
+    <!-- Bakery Wheat / Bread Motif -->
+    <path d="M256 80c-70 0-140 40-160 110-10 35-5 75 15 105 30 45 80 65 145 65s115-20 145-65c20-30 25-70 15-105-20-70-90-110-160-110z" fill="#fef3c7"/>
+    <path d="M160 210c15-30 40-50 65-50s35 20 20 50-40 50-65 50-35-20-20-50z" fill="#d97706" opacity="0.6"/>
+    <path d="M256 210c15-30 40-50 65-50s35 20 20 50-40 50-65 50-35-20-20-50z" fill="#d97706" opacity="0.6"/>
+    <path d="M120 380h272c15 0 24 16 16 28-20 30-70 54-152 54s-132-24-152-54c-8-12 1-28 16-28z" fill="#fef3c7"/>
+    <!-- Wheat Ears -->
+    <path d="M110 140c-20-25-25-60-10-85 25 15 35 45 25 70-5 8-10 12-15 15z" fill="#fde68a"/>
+    <path d="M402 140c20-25 25-60 10-85-25 15-35 45-25 70 5 8 10 12 15 15z" fill="#fde68a"/>
+  </g>
+  <text x="256" y="440" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="42" font-weight="bold" fill="#ffffff" text-anchor="middle" letter-spacing="2">HAPPYLAND</text>
+</svg>

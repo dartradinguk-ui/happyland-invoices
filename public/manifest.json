@@ -1,0 +1,18 @@
+{
+  "name": "Happyland Bakery Invoices",
+  "short_name": "Invoices",
+  "description": "Mobile invoice generator and automated email dispatch for Happyland Bakery Ltd",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffbeb",
+  "theme_color": "#d97706",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

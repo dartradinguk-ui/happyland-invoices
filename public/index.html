@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#d97706">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Happyland">
+  <title>Happyland Bakery Invoice Generator</title>
+
+  <!-- PWA & Favicon -->
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
+
+  <!-- jsPDF & AutoTable CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- Mobile Stylesheet -->
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+  <!-- Top Header Bar -->
+  <header class="app-header">
+    <div class="brand-wrapper">
+      <img src="/icons/icon.svg" alt="Happyland Logo" class="brand-logo" />
+      <div class="brand-info">
+        <h1>Happyland Bakery</h1>
+        <p>Invoice Manager</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="roleBadge" class="role-badge">STAFF</span>
+      <button id="btnSwitchRole" class="btn-header-icon" title="Change Role / Enter PIN">🔑</button>
+    </div>
+  </header>
+
+  <!-- Undo Send Floating Banner -->
+  <div id="toastUndoContainer" class="toast-undo-container">
+    <div class="toast-undo">
+      <div class="toast-text" id="toastUndoText">
+        Sending invoice in 5s...
+      </div>
+      <button type="button" id="btnUndoSend" class="btn-undo">UNDO</button>
+      <div class="toast-progress-bar"></div>
+    </div>
+  </div>
+
+  <!-- Main View Container -->
+  <main class="main-content">
+
+    <!-- TAB 1: INVOICE BUILDER -->
+    <section id="tab-invoice" class="tab-pane active">
+      <div class="card">
+        <div class="form-group">
+          <label for="customerSelect" class="form-label">Invoice To (Customer):</label>
+          <div class="customer-select-row">
+            <select id="customerSelect" class="form-control">
+              <!-- Rendered dynamically -->
+            </select>
+            <button type="button" id="btnQuickAddCustomer" class="btn-icon-addon" title="Add Customer">+</button>
+          </div>
+          <div id="customerDetailsBadge" class="customer-detail-badge" style="display:none;"></div>
+        </div>
+
+        <div class="form-group" style="margin-top: 10px;">
+          <label for="weekEndingInput" class="form-label">Week Ending:</label>
+          <input type="date" id="weekEndingInput" class="form-control" />
+        </div>
+      </div>
+
+      <!-- Day Selector Pills -->
+      <div class="day-selector-wrapper">
+        <label class="form-label" style="margin-bottom: 6px;">Select Day to Enter Quantities:</label>
+        <div class="day-pills" id="dayPills">
+          <button type="button" class="day-pill active" data-day="mon">
+            <span>Mon</span>
+            <span class="day-qty-count">—</span>
+          </button>
+          <button type="button" class="day-pill" data-day="tues">
+            <span>Tue</span>
+            <span class="day-qty-count">—</span>
+          </button>
+          <button type="button" class="day-pill" data-day="wed">
+            <span>Wed</span>
+            <span class="day-qty-count">—</span>
+          </button>
+          <button type="button" class="day-pill" data-day="thu">
+            <span>Thu</span>
+            <span class="day-qty-count">—</span>
+          </button>
+          <button type="button" class="day-pill" data-day="fri">
+            <span>Fri</span>
+            <span class="day-qty-count">—</span>
+          </button>
+          <button type="button" class="day-pill" data-day="sat">
+            <span>Sat</span>
+            <span class="day-qty-count">—</span>
+          </button>
+          <button type="button" class="day-pill" data-day="sun">
+            <span>Sun</span>
+            <span class="day-qty-count">—</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Items List for Selected Day -->
+      <div id="invoiceItemsContainer">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- TAB 2: CUSTOMERS MANAGEMENT -->
+    <section id="tab-customers" class="tab-pane">
+      <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h2 style="font-size: 16px;">Customers</h2>
+          <p style="font-size: 12px; color: var(--text-muted);">Shared across all staff phones</p>
+        </div>
+        <button type="button" class="btn-action btn-action-primary" onclick="window.openCustomerModal()" style="height:38px;">
+          + New Customer
+        </button>
+      </div>
+
+      <div class="search-bar">
+        <input type="search" id="customerSearchInput" class="form-control" placeholder="🔍 Search customers..." />
+      </div>
+
+      <div id="customersListContainer">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- TAB 3: ITEMS & PRICES MANAGEMENT -->
+    <section id="tab-items" class="tab-pane">
+      <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h2 style="font-size: 16px;">Items & Prices</h2>
+          <p style="font-size: 12px; color: var(--text-muted);">Standard product price list</p>
+        </div>
+        <button type="button" id="btnAddItem" class="btn-action btn-action-primary" style="height:38px; display:none;">
+          + Add Item
+        </button>
+      </div>
+
+      <div id="itemsAdminNotice" class="alert alert-info">
+        🔒 Prices are fixed for staff. Enter <strong>Admin PIN</strong> in ⚙️ Settings or top-right 🔑 to amend prices.
+      </div>
+
+      <div id="itemsListContainer">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- TAB 4: INVOICE HISTORY -->
+    <section id="tab-history" class="tab-pane">
+      <div class="card">
+        <h2 style="font-size: 16px;">Recent Invoices</h2>
+        <p style="font-size: 12px; color: var(--text-muted);">View, re-download, or re-send past invoices</p>
+      </div>
+      <div id="historyListContainer">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+
+    <!-- TAB 5: SETTINGS -->
+    <section id="tab-settings" class="tab-pane">
+      <div class="card">
+        <h2 style="font-size: 16px; margin-bottom: 12px;">Bakery & Bank Details</h2>
+
+        <div id="settingsStaffNotice" class="alert alert-info">
+          ℹ️ Logged in as <strong>Staff</strong>. Manager settings are locked.
+        </div>
+
+        <form id="settingsForm">
+          <div class="form-group admin-only-setting">
+            <label class="form-label">Business Name:</label>
+            <input type="text" id="setBusinessName" class="form-control" />
+          </div>
+
+          <div class="form-group admin-only-setting">
+            <label class="form-label">Account Number:</label>
+            <input type="text" id="setAccountNo" class="form-control" />
+          </div>
+
+          <div class="form-group admin-only-setting">
+            <label class="form-label">Sort Code:</label>
+            <input type="text" id="setSortCode" class="form-control" />
+          </div>
+
+          <div class="form-group admin-only-setting">
+            <label class="form-label">Bakery BCC Email (gets a copy of every invoice):</label>
+            <input type="email" id="setBccEmail" class="form-control" placeholder="owner@happylandbakery.co.uk" />
+          </div>
+
+          <div class="form-group admin-only-setting">
+            <label class="form-label">Next Invoice Number:</label>
+            <input type="number" id="setNextNo" class="form-control" />
+          </div>
+
+          <div class="admin-only-setting" style="margin-top: 16px;">
+            <button type="submit" class="btn-action btn-action-primary" style="width:100%; height:44px;">
+              💾 Save Settings
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card admin-only-setting" style="margin-top: 12px;">
+        <h3 style="font-size: 15px; margin-bottom: 8px;">Backup & Data Protection</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+          Download a full backup of all customers, items, and settings to your phone or computer.
+        </p>
+        <button type="button" id="btnExportBackup" class="btn-action btn-action-secondary" style="height:42px;">
+          📥 Export JSON Backup
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- STICKY BOTTOM ACTION BAR (INVOICE TAB) -->
+  <div id="stickyBottomBar" class="sticky-bottom-bar">
+    <div class="bottom-bar-content">
+      <div class="total-summary-box">
+        <span class="total-label">Total</span>
+        <span id="grandTotalDisplay" class="total-amount">£0.00</span>
+      </div>
+      <div class="bottom-actions">
+        <button type="button" id="btnPreview" class="btn-action btn-action-secondary" title="Preview Invoice">
+          👁️ Preview
+        </button>
+        <button type="button" id="btnDownloadPdf" class="btn-action btn-action-primary" title="Download PDF">
+          📄 PDF
+        </button>
+        <button type="button" id="btnOneTapSend" class="btn-action btn-action-success" title="One-Tap Send">
+          ✉️ Send
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAVIGATION BAR -->
+  <nav class="bottom-nav">
+    <button type="button" class="nav-item active" data-tab="invoice">
+      <span class="nav-icon">🧾</span>
+      <span class="nav-label">Invoice</span>
+    </button>
+    <button type="button" class="nav-item" data-tab="customers">
+      <span class="nav-icon">👥</span>
+      <span class="nav-label">Customers</span>
+    </button>
+    <button type="button" class="nav-item" data-tab="items">
+      <span class="nav-icon">🥖</span>
+      <span class="nav-label">Items</span>
+    </button>
+    <button type="button" class="nav-item" data-tab="history">
+      <span class="nav-icon">🗂</span>
+      <span class="nav-label">History</span>
+    </button>
+    <button type="button" class="nav-item" data-tab="settings">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">Settings</span>
+    </button>
+  </nav>
+
+  <!-- ==========================================================================
+       MODALS
+       ========================================================================== -->
+
+  <!-- Customer Modal -->
+  <div id="customerModal" class="modal-overlay">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3 id="customerModalTitle" class="modal-title">Customer</h3>
+        <button type="button" class="btn-close-modal">✕</button>
+      </div>
+      <form id="customerModalForm">
+        <input type="hidden" id="custModalId" />
+        <div class="form-group">
+          <label class="form-label">Customer / Company Name: *</label>
+          <input type="text" id="custModalName" class="form-control" required placeholder="e.g. Mayyil 1 - Knightsbridge" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Customer Email Address (for automated sending):</label>
+          <input type="email" id="custModalEmail" class="form-control" placeholder="accounts@customer.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">CC Email Address (Optional):</label>
+          <input type="email" id="custModalCc" class="form-control" placeholder="manager@customer.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Address / Location (Optional):</label>
+          <input type="text" id="custModalAddr" class="form-control" placeholder="e.g. Knightsbridge, London" />
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-action btn-action-secondary btn-close-modal">Cancel</button>
+          <button type="submit" class="btn-action btn-action-primary">Save Customer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Item Modal -->
+  <div id="itemModal" class="modal-overlay">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3 id="itemModalTitle" class="modal-title">Item</h3>
+        <button type="button" class="btn-close-modal">✕</button>
+      </div>
+      <form id="itemModalForm">
+        <input type="hidden" id="itemModalId" />
+        <div class="form-group">
+          <label class="form-label">Item Name: *</label>
+          <input type="text" id="itemModalName" class="form-control" required placeholder="e.g. Baguette" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Unit Price (£): *</label>
+          <input type="number" id="itemModalPrice" class="form-control" step="0.01" min="0" required placeholder="0.55" />
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-action btn-action-secondary btn-close-modal">Cancel</button>
+          <button type="submit" class="btn-action btn-action-primary">Save Item</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Invoice Preview Modal -->
+  <div id="previewModal" class="modal-overlay">
+    <div class="modal-sheet" style="max-width: 650px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Invoice Preview</h3>
+        <button type="button" class="btn-close-modal">✕</button>
+      </div>
+      <div id="previewModalBody">
+        <!-- Rendered dynamically -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-action btn-action-secondary btn-close-modal">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PIN Entry / Switch Modal -->
+  <div id="pinModal" class="modal-overlay">
+    <div class="modal-sheet" style="max-width: 400px; text-align: center;">
+      <div class="modal-header">
+        <h3 class="modal-title" style="margin: 0 auto;">🔐 Happyland Login</h3>
+      </div>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+        Enter your Staff PIN or Admin PIN to continue.
+      </p>
+      <form id="pinForm">
+        <div class="form-group">
+          <input type="password" 
+                 id="pinInput" 
+                 class="form-control" 
+                 inputmode="numeric" 
+                 pattern="[0-9]*" 
+                 placeholder="Enter 4-digit PIN" 
+                 style="text-align: center; font-size: 24px; letter-spacing: 6px; height: 50px;" 
+                 required />
+        </div>
+        <div id="pinError" class="alert alert-danger" style="display:none; margin-top:8px;"></div>
+        <div style="margin-top: 14px;">
+          <button type="submit" class="btn-action btn-action-primary" style="width: 100%; height: 46px; font-size: 16px;">
+            Unlock
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Application Script (ES Module) -->
+  <script type="module" src="/js/app.js"></script>
+
+  <!-- Global helper for inline openCustomerModal -->
+  <script>
+    window.openCustomerModal = function() {
+      const modal = document.getElementById('customerModal');
+      document.getElementById('customerModalTitle').textContent = 'Add New Customer';
+      document.getElementById('custModalId').value = '';
+      document.getElementById('custModalName').value = '';
+      document.getElementById('custModalEmail').value = '';
+      document.getElementById('custModalCc').value = '';
+      document.getElementById('custModalAddr').value = '';
+      if (modal) modal.style.display = 'flex';
+    };
+  </script>
+</body>
+</html>

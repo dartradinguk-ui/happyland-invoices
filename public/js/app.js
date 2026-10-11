@@ -1,5 +1,5 @@
 import { Api } from './api.js';
-import { createInvoiceDoc, downloadInvoicePdf, getInvoicePdfBase64, generateFilename } from './pdf.js';
+import { createInvoiceDoc, downloadInvoicePdf, getInvoicePdfBase64, getInvoicePdfFile, generateFilename } from './pdf.js';
 
 // --- APPLICATION STATE ---
 const DAYS = ['mon', 'tues', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -510,79 +510,90 @@ function showInvoicePreviewModal() {
   modal.style.display = 'flex';
 }
 
-// --- ONE-TAP SEND AUTOMATION WITH 5-SECOND UNDO ---
-function startOneTapSendFlow() {
+// --- SEND VIA LOCAL EMAIL / SHARE SHEET WITH ATTACHED PDF ---
+async function startOneTapSendFlow() {
   const data = calculateCurrentInvoiceData();
 
   if (!data.customerEmail) {
-    alert(`Please set an email address for "${data.company}" before sending.\nTap Customers to add an email.`);
-    switchTab('customers');
-    return;
+    if (!confirm(`No email address is set for "${data.company}". Do you still want to prepare and send via Mail/WhatsApp?`)) {
+      switchTab('customers');
+      return;
+    }
   }
 
-  // Show Undo Toast
-  const toast = document.getElementById('toastUndoContainer');
-  const toastText = document.getElementById('toastUndoText');
-  if (!toast || !toastText) return;
-
-  toastText.innerHTML = `Sending invoice to <strong>${data.customerEmail}</strong> in 5s...`;
-  toast.style.display = 'block';
-
-  // Restart progress bar animation
-  const bar = toast.querySelector('.toast-progress-bar');
-  if (bar) {
-    bar.style.animation = 'none';
-    bar.offsetHeight; // trigger reflow
-    bar.style.animation = 'countdown 5s linear forwards';
-  }
-
-  // 5-second countdown timer
-  if (state.sendTimeoutId) clearTimeout(state.sendTimeoutId);
-
-  state.sendTimeoutId = setTimeout(async () => {
-    toast.style.display = 'none';
-    await executeSend(data);
-  }, 5000);
-}
-
-function cancelOneTapSend() {
-  if (state.sendTimeoutId) {
-    clearTimeout(state.sendTimeoutId);
-    state.sendTimeoutId = null;
-  }
-  const toast = document.getElementById('toastUndoContainer');
-  if (toast) toast.style.display = 'none';
-  showToast('Sending was undone/cancelled.', 'info');
+  await executeSend(data);
 }
 
 async function executeSend(data) {
-  showToast('Creating invoice & sending PDF...', 'info');
+  showToast('Preparing PDF & opening Mail...', 'info');
 
   try {
-    // 1. Generate PDF base64
     const nextNo = state.settings.nextInvoiceNo || 1001;
     data.invoiceNo = nextNo;
+    const pdfFile = getInvoicePdfFile(data);
     const pdfBase64 = getInvoicePdfBase64(data);
     data.pdfBase64 = pdfBase64;
 
-    // 2. Save invoice to backend
+    // 1. Save invoice to backend (atomic sequential invoice number)
     const createRes = await Api.createInvoice(data);
     const invoiceNo = createRes.invoiceNo || nextNo;
+    data.invoiceNo = invoiceNo;
 
-    // 3. Send email via Brevo
-    const sendRes = await Api.sendInvoiceEmail(invoiceNo, {
-      toEmail: data.customerEmail,
-      ccEmail: data.customerCcEmail,
-      pdfBase64,
-      company: data.company,
-      grandTotal: data.grandTotal,
-      weekEndingFormatted: data.weekEndingFormatted
-    });
+    // 2. Prepare Email Subject and Body
+    const subject = `Invoice #${invoiceNo} – Happyland Bakery – Week ending ${data.weekEndingFormatted}`;
+    const bodyText = `Dear ${data.company},
+
+Please find attached your invoice #${invoiceNo} for the week ending ${data.weekEndingFormatted}.
+
+Total due: £${data.grandTotal.toFixed(2)}
+
+Payment Details:
+Bank: Happyland Bakery Ltd
+Account Number: ${state.settings.accountNumber || '30623245'}
+Sort Code: ${state.settings.sortCode || '20-92-60'}
+
+Thank you for your business,
+Happyland Bakery Ltd`;
+
+    // 3. Web Share API Level 2 (iPhone Safari & Android Chrome)
+    // Directly opens local Mail/Gmail compose with the PDF attached!
+    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+      // Copy customer email to clipboard so user can paste into 'To:' in Mail with one tap
+      if (data.customerEmail && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(data.customerEmail);
+        } catch (e) {}
+      }
+
+      await navigator.share({
+        files: [pdfFile],
+        title: subject,
+        text: data.customerEmail ? `To: ${data.customerEmail}\n\n${bodyText}` : bodyText
+      });
+
+      // Mark as sent on server
+      await Api.sendInvoiceEmail(invoiceNo, {
+        toEmail: data.customerEmail,
+        pdfBase64
+      });
+
+      showToast(`Invoice #${invoiceNo} ready in your Mail app!`, 'success');
+    } else {
+      // Desktop / browser fallback: download PDF + trigger mailto
+      downloadInvoicePdf(data);
+      const mailtoUrl = `mailto:${encodeURIComponent(data.customerEmail || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
+      window.location.href = mailtoUrl;
+
+      await Api.sendInvoiceEmail(invoiceNo, {
+        toEmail: data.customerEmail,
+        pdfBase64
+      });
+
+      showToast(`Invoice #${invoiceNo} PDF downloaded & Mail opened.`, 'success');
+    }
 
     // 4. Update next invoice number locally
     state.settings.nextInvoiceNo = invoiceNo + 1;
-
-    showToast(sendRes.message || `Invoice #${invoiceNo} sent to ${data.customerEmail}!`, 'success');
 
     // 5. Clear draft quantities for fresh invoice
     state.draft.quantities = {};
@@ -590,8 +601,13 @@ async function executeSend(data) {
     renderInvoiceItemCards();
     updateGrandTotal();
   } catch (err) {
-    console.error('Send error:', err);
-    showToast(`Error sending invoice: ${err.message}`, 'danger');
+    if (err.name === 'AbortError') {
+      // User closed the share sheet without picking an app
+      showToast(`Invoice #${data.invoiceNo} saved in History.`, 'info');
+    } else {
+      console.error('Send error:', err);
+      showToast(`Error: ${err.message}`, 'danger');
+    }
   }
 }
 
@@ -842,22 +858,39 @@ async function loadHistoryTab() {
             alert('This invoice has no saved customer email address.');
             return;
           }
-          if (confirm(`Re-send Invoice #${invNo} to ${inv.customerEmail}?`)) {
-            showToast(`Re-sending Invoice #${invNo}...`, 'info');
-            const pdfBase64 = inv.pdfBase64 || getInvoicePdfBase64(inv);
-            const sendRes = await Api.sendInvoiceEmail(invNo, {
-              toEmail: inv.customerEmail,
-              ccEmail: inv.customerCcEmail,
-              pdfBase64,
-              company: inv.company,
-              grandTotal: inv.grandTotal,
-              weekEndingFormatted: inv.weekEndingFormatted
+          const pdfFile = getInvoicePdfFile(inv);
+          const subject = `Invoice #${invNo} – Happyland Bakery – Week ending ${inv.weekEndingFormatted}`;
+          const bodyText = `Dear ${inv.company},
+
+Please find attached invoice #${invNo} for the week ending ${inv.weekEndingFormatted}.
+
+Total due: £${(inv.grandTotal || 0).toFixed(2)}
+
+Payment Details:
+Bank: Happyland Bakery Ltd
+Account Number: ${state.settings.accountNumber || '30623245'}
+Sort Code: ${state.settings.sortCode || '20-92-60'}
+
+Thank you for your business,
+Happyland Bakery Ltd`;
+
+          if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+            if (inv.customerEmail && navigator.clipboard) {
+              try { await navigator.clipboard.writeText(inv.customerEmail); } catch (e) {}
+            }
+            await navigator.share({
+              files: [pdfFile],
+              title: subject,
+              text: inv.customerEmail ? `To: ${inv.customerEmail}\n\n${bodyText}` : bodyText
             });
-            showToast(sendRes.message || `Invoice #${invNo} re-sent!`, 'success');
-            loadHistoryTab();
+            showToast(`Invoice #${invNo} opened in Mail!`, 'success');
+          } else {
+            downloadInvoicePdf(inv);
+            window.location.href = `mailto:${encodeURIComponent(inv.customerEmail || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
+            showToast(`Invoice #${invNo} PDF downloaded & Mail opened`, 'success');
           }
         } catch (e) {
-          showToast(e.message, 'danger');
+          if (e.name !== 'AbortError') showToast(e.message, 'danger');
         }
       });
     });

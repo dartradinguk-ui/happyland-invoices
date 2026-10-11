@@ -170,3 +170,14 @@ export function getInvoicePdfBase64(invoiceData) {
   // Strip URI header if present
   return dataUri.replace(/^data:application\/pdf;base64,/, '');
 }
+
+export function getInvoicePdfBlob(invoiceData) {
+  const doc = createInvoiceDoc(invoiceData);
+  return doc.output('blob');
+}
+
+export function getInvoicePdfFile(invoiceData) {
+  const blob = getInvoicePdfBlob(invoiceData);
+  const filename = generateFilename(invoiceData.company, invoiceData.invoiceNo);
+  return new File([blob], filename, { type: 'application/pdf', lastModified: Date.now() });
+}

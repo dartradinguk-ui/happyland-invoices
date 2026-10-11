@@ -1,24 +1,16 @@
 import { getStore } from '@netlify/blobs';
-import { sendInvoiceEmail } from './lib/brevo.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
 // --- CONFIGURATION & ENV ---
 const STAFF_PIN = process.env.STAFF_PIN || '1234';
 const ADMIN_PIN = process.env.ADMIN_PIN || '9999';
-const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
-const SENDER_EMAIL = process.env.SENDER_EMAIL || 'invoices@happylandbakery.co.uk';
-const SENDER_NAME = process.env.SENDER_NAME || 'Happyland Bakery Ltd';
-const BCC_EMAIL = process.env.BCC_EMAIL || '';
 
 // --- SEED DEFAULTS ---
 const DEFAULT_SETTINGS = {
   businessName: 'Happyland Bakery Ltd',
   accountNumber: '30623245',
   sortCode: '20-92-60',
-  senderEmail: SENDER_EMAIL,
-  senderName: SENDER_NAME,
-  bccEmail: BCC_EMAIL,
   emailSubject: 'Invoice #{invoiceNo} – Happyland Bakery – Week ending {weekEnding}',
   emailBody: `Dear {customer},
 
@@ -336,7 +328,7 @@ export default async (req, context) => {
   // 6. INVOICES
   if (pathname === '/invoices') {
     if (req.method === 'GET') {
-      // List invoices (without heavy base64 pdf data for speed)
+      // List invoices
       const list = (db.invoices || []).map(inv => ({
         invoiceNo: inv.invoiceNo,
         company: inv.company,
@@ -395,95 +387,26 @@ export default async (req, context) => {
     return jsonResponse({ invoice });
   }
 
-  // 7. ONE-TAP SEND EMAIL FOR AN INVOICE
+  // 7. RECORD INVOICE SENT VIA LOCAL EMAIL / SHARE SHEET
   const sendMatch = pathname.match(/^\/invoices\/(\d+)\/send$/);
   if (sendMatch && req.method === 'POST') {
     const invNo = parseInt(sendMatch[1], 10);
     const body = await req.json().catch(() => ({}));
 
-    // Find invoice or use provided payload
     const invoiceIndex = (db.invoices || []).findIndex(i => i.invoiceNo === invNo);
-    let invoice = invoiceIndex !== -1 ? db.invoices[invoiceIndex] : null;
-
-    const toEmail = body.toEmail || invoice?.customerEmail;
-    if (!toEmail || !toEmail.trim()) {
-      return jsonResponse({ error: 'Customer email address is required to send invoice.' }, 400);
+    if (invoiceIndex !== -1) {
+      db.invoices[invoiceIndex].sentAt = new Date().toISOString();
+      db.invoices[invoiceIndex].sentStatus = 'sent';
+      db.invoices[invoiceIndex].sentTo = (body.toEmail || db.invoices[invoiceIndex].customerEmail || '').trim();
+      if (body.pdfBase64) db.invoices[invoiceIndex].pdfBase64 = body.pdfBase64;
+      await saveStoreData(storeWrapper, db);
     }
 
-    const pdfBase64 = body.pdfBase64 || invoice?.pdfBase64;
-    if (!pdfBase64) {
-      return jsonResponse({ error: 'PDF data is missing. Please generate invoice PDF first.' }, 400);
-    }
-
-    const company = body.company || invoice?.company || 'Valued Customer';
-    const weekEnding = body.weekEndingFormatted || invoice?.weekEndingFormatted || '';
-    const total = (body.grandTotal !== undefined ? body.grandTotal : invoice?.grandTotal || 0).toFixed(2);
-
-    // Prepare template variables
-    const settings = db.settings || DEFAULT_SETTINGS;
-    const subject = (settings.emailSubject || DEFAULT_SETTINGS.emailSubject)
-      .replace(/{invoiceNo}/g, invNo)
-      .replace(/{customer}/g, company)
-      .replace(/{weekEnding}/g, weekEnding)
-      .replace(/{total}/g, total);
-
-    const bodyText = (settings.emailBody || DEFAULT_SETTINGS.emailBody)
-      .replace(/{invoiceNo}/g, invNo)
-      .replace(/{customer}/g, company)
-      .replace(/{weekEnding}/g, weekEnding)
-      .replace(/{total}/g, total);
-
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; color: #222; max-width: 600px; line-height: 1.6;">
-        <h2 style="color: #4a2c11; margin-bottom: 8px;">Happyland Bakery Ltd</h2>
-        <p style="white-space: pre-line; margin-top: 0;">${bodyText.replace(/\n/g, '<br/>')}</p>
-        <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;" />
-        <p style="font-size: 12px; color: #777;">
-          This is an automated invoice sent by Happyland Bakery Ltd.<br/>
-          Attached file: Happyland_Bakery_Invoice_${invNo}.pdf
-        </p>
-      </div>
-    `;
-
-    try {
-      const result = await sendInvoiceEmail({
-        apiKey: BREVO_API_KEY,
-        senderName: settings.senderName || SENDER_NAME,
-        senderEmail: settings.senderEmail || SENDER_EMAIL,
-        toEmail: toEmail.trim(),
-        toName: company,
-        ccEmail: body.ccEmail || invoice?.customerCcEmail,
-        bccEmail: settings.bccEmail || BCC_EMAIL,
-        subject,
-        htmlContent,
-        textContent: bodyText,
-        attachmentName: `Happyland_Bakery_Invoice_${invNo}.pdf`,
-        attachmentBase64: pdfBase64
-      });
-
-      // Update invoice sent status
-      if (invoiceIndex !== -1) {
-        db.invoices[invoiceIndex].sentAt = new Date().toISOString();
-        db.invoices[invoiceIndex].sentStatus = result.simulated ? 'simulated' : 'sent';
-        db.invoices[invoiceIndex].sentTo = toEmail.trim();
-        if (pdfBase64) db.invoices[invoiceIndex].pdfBase64 = pdfBase64;
-        await saveStoreData(storeWrapper, db);
-      }
-
-      return jsonResponse({
-        success: true,
-        invoiceNo: invNo,
-        sentTo: toEmail.trim(),
-        simulated: result.simulated,
-        message: result.simulated ? result.message : `Invoice #${invNo} successfully sent to ${toEmail.trim()}`
-      });
-    } catch (sendErr) {
-      console.error('Email send error:', sendErr);
-      return jsonResponse({
-        error: `Email delivery failed: ${sendErr.message}`,
-        details: sendErr.details || null
-      }, 500);
-    }
+    return jsonResponse({
+      success: true,
+      invoiceNo: invNo,
+      message: `Invoice #${invNo} recorded as sent`
+    });
   }
 
   // 8. BACKUP EXPORT & IMPORT (ADMIN ONLY)

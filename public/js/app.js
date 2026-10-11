@@ -586,7 +586,7 @@ Happyland Bakery Ltd`;
       await navigator.share({
         files: [pdfFile],
         title: subject,
-        text: data.customerEmail ? `To: ${data.customerEmail}\n\n${bodyText}` : bodyText
+        text: bodyText
       });
 
       // Mark as sent on server
@@ -595,7 +595,7 @@ Happyland Bakery Ltd`;
         pdfBase64
       });
 
-      showToast(`Invoice #${invoiceNo} ready in your Mail app!`, 'success');
+      showToast(`Invoice #${invoiceNo} ready! ${data.customerEmail ? 'Email copied to clipboard.' : ''}`, 'success');
     } else {
       // Desktop / browser fallback: download PDF + trigger mailto
       downloadInvoicePdf(data);
@@ -897,7 +897,7 @@ Happyland Bakery Ltd`;
             await navigator.share({
               files: [pdfFile],
               title: subject,
-              text: inv.customerEmail ? `To: ${inv.customerEmail}\n\n${bodyText}` : bodyText
+              text: bodyText
             });
             showToast(`Invoice #${invNo} opened in Mail!`, 'success');
           } else {

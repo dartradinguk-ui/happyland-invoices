@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import apiHandler from './netlify/functions/api.mjs';
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const PUBLIC_DIR = path.join(process.cwd(), 'public');
 
 const MIME_TYPES = {

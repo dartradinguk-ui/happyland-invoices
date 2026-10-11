@@ -19,7 +19,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
   <!-- Mobile Stylesheet -->
-  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/styles.css?v=4">
 </head>
 <body>
 
@@ -352,8 +352,19 @@
   </div>
 
 
+  <!-- Service worker cache refresh helper -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        for (let registration of registrations) {
+          registration.update();
+        }
+      });
+    }
+  </script>
+
   <!-- Application Script (ES Module) -->
-  <script type="module" src="/js/app.js"></script>
+  <script type="module" src="/js/app.js?v=4"></script>
 
   <!-- Global helper for inline openCustomerModal -->
   <script>

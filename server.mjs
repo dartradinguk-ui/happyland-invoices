@@ -73,6 +73,7 @@ const server = http.createServer(async (req, res) => {
     const data = fs.readFileSync(filePath);
     res.statusCode = 200;
     res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.end(data);
   } catch (err) {
     res.statusCode = 404;

@@ -80,9 +80,10 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n==================================================`);
   console.log(` Happyland Bakery Invoice Generator running at:`);
-  console.log(` http://localhost:${PORT}`);
+  console.log(` > On your PC:    http://localhost:${PORT}`);
+  console.log(` > On your Phone: http://192.168.50.16:${PORT}  (same Wi-Fi)`);
   console.log(`==================================================\n`);
 });

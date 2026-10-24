@@ -468,13 +468,30 @@ export default async (req, context) => {
     }
   }
 
-  // Single Invoice GET
+  // Clear All Invoice History
+  if (pathname === '/invoices/clear' && req.method === 'POST') {
+    db.invoices = [];
+    await saveStoreData(storeWrapper, db);
+    return jsonResponse({ success: true, message: 'All invoice history cleared' });
+  }
+
+  // Single Invoice GET & DELETE
   const invMatch = pathname.match(/^\/invoices\/(\d+)$/);
-  if (invMatch && req.method === 'GET') {
+  if (invMatch) {
     const invNo = parseInt(invMatch[1], 10);
-    const invoice = (db.invoices || []).find(i => i.invoiceNo === invNo);
-    if (!invoice) return jsonResponse({ error: 'Invoice not found' }, 404);
-    return jsonResponse({ invoice });
+    const invoiceIndex = (db.invoices || []).findIndex(i => i.invoiceNo === invNo);
+
+    if (req.method === 'GET') {
+      if (invoiceIndex === -1) return jsonResponse({ error: 'Invoice not found' }, 404);
+      return jsonResponse({ invoice: db.invoices[invoiceIndex] });
+    }
+
+    if (req.method === 'DELETE') {
+      if (invoiceIndex === -1) return jsonResponse({ error: 'Invoice not found' }, 404);
+      db.invoices.splice(invoiceIndex, 1);
+      await saveStoreData(storeWrapper, db);
+      return jsonResponse({ success: true, message: `Invoice #${invNo} deleted` });
+    }
   }
 
   // 7. SEND INVOICE (1-TAP AUTOMATIC VIA GMAIL OR SHARE SHEET RECORDING)

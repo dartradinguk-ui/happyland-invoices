@@ -237,6 +237,14 @@ export const Api = {
     return this.request(`/invoices/${invoiceNo}`);
   },
 
+  async deleteInvoice(invoiceNo) {
+    return this.request(`/invoices/${invoiceNo}`, { method: 'DELETE' });
+  },
+
+  async clearInvoiceHistory() {
+    return this.request('/invoices/clear', { method: 'POST' });
+  },
+
   async exportBackup() {
     return this.request('/backup/export');
   },

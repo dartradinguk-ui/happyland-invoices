@@ -19,7 +19,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
   <!-- Mobile Stylesheet -->
-  <link rel="stylesheet" href="/css/styles.css?v=7">
+  <link rel="stylesheet" href="/css/styles.css?v=8">
 </head>
 <body>
 
@@ -166,9 +166,14 @@
 
     <!-- TAB 4: INVOICE HISTORY -->
     <section id="tab-history" class="tab-pane">
-      <div class="card">
-        <h2 style="font-size: 16px;">Recent Invoices</h2>
-        <p style="font-size: 12px; color: var(--text-muted);">View, re-download, or re-send past invoices</p>
+      <div class="card" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <div>
+          <h2 style="font-size: 16px;">Recent Invoices</h2>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom:0;">View, re-download, re-send, or delete past invoices</p>
+        </div>
+        <button id="btnClearHistory" class="btn-action admin-only-history" style="height:34px; padding:0 12px; font-size:12px; background:#fff1f2; color:#be123c; border-color:#fecdd3; display:none; white-space:nowrap;">
+          🗑️ Clear All
+        </button>
       </div>
       <div id="historyListContainer">
         <!-- Rendered dynamically -->
@@ -401,7 +406,7 @@
   </script>
 
   <!-- Application Script (ES Module) -->
-  <script type="module" src="/js/app.js?v=7"></script>
+  <script type="module" src="/js/app.js?v=8"></script>
 
   <!-- Global helper for inline openCustomerModal -->
   <script>

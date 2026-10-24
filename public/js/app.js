@@ -906,6 +906,11 @@ async function loadHistoryTab() {
     const res = await Api.getInvoices();
     const invoices = res.invoices || [];
 
+    const btnClearAll = document.getElementById('btnClearHistory');
+    if (btnClearAll) {
+      btnClearAll.style.display = (state.role === 'admin' && invoices.length > 0) ? 'block' : 'none';
+    }
+
     if (invoices.length === 0) {
       container.innerHTML = `<div class="card" style="text-align:center; color: var(--text-muted); padding:30px;">No past invoices recorded yet.</div>`;
       return;
@@ -930,11 +935,14 @@ async function loadHistoryTab() {
             ${inv.sentTo ? `<br/>To: ${inv.sentTo}` : ''}
           </div>
           <div style="display:flex; gap:8px;">
-            <button class="btn-action btn-action-secondary btn-history-download" data-no="${inv.invoiceNo}" style="height:36px; font-size:13px;">
+            <button class="btn-action btn-action-secondary btn-history-download" data-no="${inv.invoiceNo}" style="height:36px; font-size:13px; flex:1;">
               📄 Download PDF
             </button>
-            <button class="btn-action btn-action-primary btn-history-resend" data-no="${inv.invoiceNo}" style="height:36px; font-size:13px;">
+            <button class="btn-action btn-action-primary btn-history-resend" data-no="${inv.invoiceNo}" style="height:36px; font-size:13px; flex:1;">
               ✉️ Re-send
+            </button>
+            <button class="btn-action btn-history-delete" data-no="${inv.invoiceNo}" data-company="${inv.company}" style="height:36px; width:40px; padding:0; font-size:15px; background:#fff1f2; color:#be123c; border:1px solid #fecdd3; border-radius:var(--radius-sm);" title="Delete Invoice #${inv.invoiceNo}">
+              🗑️
             </button>
           </div>
         </div>
@@ -1019,6 +1027,22 @@ Happyland Bakery Ltd`;
         } finally {
           btn.disabled = false;
           btn.innerHTML = origHtml;
+        }
+      });
+    });
+
+    container.querySelectorAll('.btn-history-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const invNo = parseInt(btn.dataset.no, 10);
+        const company = btn.dataset.company || 'Customer';
+        if (confirm(`Are you sure you want to delete Invoice #${invNo} (${company}) from history?`)) {
+          try {
+            await Api.deleteInvoice(invNo);
+            showToast(`Invoice #${invNo} deleted`, 'success');
+            await loadHistoryTab();
+          } catch (e) {
+            showToast(e.message, 'danger');
+          }
         }
       });
     });
@@ -1251,6 +1275,19 @@ function initModals() {
     renderCustomersTab();
   });
 
+  // Clear All Invoice History (Admin)
+  document.getElementById('btnClearHistory')?.addEventListener('click', async () => {
+    if (confirm('Are you sure you want to delete ALL past invoices? This will wipe the history list and cannot be undone.')) {
+      try {
+        await Api.clearInvoiceHistory();
+        showToast('All invoice history cleared', 'success');
+        await loadHistoryTab();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+  });
+
   // Backup Export
   document.getElementById('btnExportBackup')?.addEventListener('click', async () => {
     try {
@@ -1276,6 +1313,10 @@ function setRoleMode(newRole) {
   renderItemsTab();
   renderCustomersTab();
   renderSettingsTab();
+  const btnClearAll = document.getElementById('btnClearHistory');
+  if (btnClearAll) {
+    btnClearAll.style.display = (newRole === 'admin') ? 'block' : 'none';
+  }
   showToast(`Switched to ${newRole.toUpperCase()} mode`, 'success');
 }
 

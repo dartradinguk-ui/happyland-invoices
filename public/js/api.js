@@ -30,9 +30,31 @@ export const Api = {
     localStorage.removeItem(ROLE_STORAGE_KEY);
   },
 
+  getGmailPin() {
+    return sessionStorage.getItem('gmail_pin') || '';
+  },
+
+  setGmailPin(pin) {
+    if (pin) {
+      sessionStorage.setItem('gmail_pin', pin);
+    } else {
+      sessionStorage.removeItem('gmail_pin');
+    }
+  },
+
+  async unlockGmail(pin) {
+    const res = await this.request('/settings/unlock-gmail', {
+      method: 'POST',
+      body: JSON.stringify({ pin })
+    });
+    this.setGmailPin(pin);
+    return res;
+  },
+
   async request(path, options = {}) {
     const pin = this.getPin();
     const role = this.getRole();
+    const gmailPin = this.getGmailPin();
     const headers = {
       'Content-Type': 'application/json',
       'X-Role': role,
@@ -41,6 +63,10 @@ export const Api = {
 
     if (pin) {
       headers['X-Pin'] = pin;
+    }
+
+    if (gmailPin) {
+      headers['X-Gmail-Pin'] = gmailPin;
     }
 
     try {

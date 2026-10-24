@@ -19,7 +19,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
   <!-- Mobile Stylesheet -->
-  <link rel="stylesheet" href="/css/styles.css?v=8">
+  <link rel="stylesheet" href="/css/styles.css?v=9">
 </head>
 <body>
 
@@ -186,35 +186,59 @@
         ℹ️ Currently in <strong>Staff</strong> mode. Switch to <strong>Admin ⚙️</strong> in the top header to edit Gmail &amp; bakery settings.
       </div>
 
-      <!-- GMAIL 1-TAP AUTO-SEND SETUP CARD -->
+      <!-- GMAIL 1-TAP AUTO-SEND SETUP CARD (PIN PROTECTED) -->
       <div class="card admin-only-setting" style="margin-bottom: 12px; border: 1.5px solid #f59e0b;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <h2 style="font-size: 16px;">📧 1-Tap Gmail Auto-Send</h2>
+          <h2 style="font-size: 16px; margin:0;">📧 1-Tap Gmail Auto-Send</h2>
           <span id="gmailStatusBadge" style="font-size:11px; font-weight:700; padding:3px 8px; border-radius:12px; background:#fef3c7; color:#92400e;">Not Configured</span>
         </div>
-        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
-          Send invoices with the PDF attached and the customer's <strong>To:</strong> email filled in automatically from your Bakery Gmail account.
-        </p>
 
-        <div class="form-group">
-          <label class="form-label">Bakery Gmail Address:</label>
-          <input type="email" id="setGmailUser" class="form-control" placeholder="e.g. happylandbakery@gmail.com" />
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Google 16-Character App Password:</label>
-          <input type="password" id="setGmailAppPassword" class="form-control" placeholder="xxxx xxxx xxxx xxxx" autocomplete="new-password" />
-          <div style="font-size:11px; color:var(--text-muted); margin-top:6px; background:#f8fafc; padding:8px 10px; border-radius:6px; border:1px solid var(--border);">
-            <strong>How to get your 16-character App Password (1 min):</strong><br/>
-            1. Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" style="color:var(--primary-dark); font-weight:700;">myaccount.google.com/apppasswords</a> (ensure 2-Step Verification is ON).<br/>
-            2. Enter name <code>Happyland Invoices</code> and click <strong>Create</strong>.<br/>
-            3. Paste the 16-letter code above and tap <strong>Save &amp; Test Gmail</strong>.
+        <!-- LOCKED VIEW -->
+        <div id="gmailLockedView" style="padding: 12px 0 4px 0;">
+          <p style="font-size: 13px; color: var(--text); margin-bottom: 10px;">
+            🔒 <strong>Gmail settings are protected behind a PIN wall.</strong><br/>
+            <span style="font-size: 12px; color: var(--text-muted);">Enter PIN to manage Bakery Gmail credentials:</span>
+          </p>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="password" id="gmailPinInput" class="form-control" placeholder="PIN" maxlength="6" inputmode="numeric" style="width: 130px; font-size:16px; letter-spacing: 2px; text-align:center;" />
+            <button type="button" id="btnUnlockGmail" class="btn-action btn-action-primary" style="height:42px; padding:0 16px;">
+              Unlock 🔓
+            </button>
           </div>
+          <div id="gmailPinError" style="font-size: 12px; color: var(--danger); margin-top: 6px; display: none;"></div>
         </div>
 
-        <button type="button" id="btnTestGmail" class="btn-action btn-action-success" style="width:100%; height:44px; margin-top:8px;">
-          🧪 Save &amp; Test Gmail Connection
-        </button>
+        <!-- UNLOCKED VIEW -->
+        <div id="gmailUnlockedView" style="display: none;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; gap:8px;">
+            <p style="font-size: 12px; color: var(--text-muted); margin:0;">
+              Send invoices with PDF attached and customer's <strong>To:</strong> email filled in automatically from your Gmail.
+            </p>
+            <button type="button" id="btnLockGmail" class="btn-action btn-action-secondary" style="height:28px; font-size:11px; padding:0 8px; white-space:nowrap;">
+              🔒 Re-lock
+            </button>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Bakery Gmail Address:</label>
+            <input type="email" id="setGmailUser" class="form-control" placeholder="e.g. happylandbakery@gmail.com" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Google 16-Character App Password:</label>
+            <input type="password" id="setGmailAppPassword" class="form-control" placeholder="xxxx xxxx xxxx xxxx" autocomplete="new-password" />
+            <div style="font-size:11px; color:var(--text-muted); margin-top:6px; background:#f8fafc; padding:8px 10px; border-radius:6px; border:1px solid var(--border);">
+              <strong>How to get your 16-character App Password (1 min):</strong><br/>
+              1. Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" style="color:var(--primary-dark); font-weight:700;">myaccount.google.com/apppasswords</a> (ensure 2-Step Verification is ON).<br/>
+              2. Enter name <code>Happyland Invoices</code> and click <strong>Create</strong>.<br/>
+              3. Paste the 16-letter code above and tap <strong>Save &amp; Test Gmail</strong>.
+            </div>
+          </div>
+
+          <button type="button" id="btnTestGmail" class="btn-action btn-action-success" style="width:100%; height:44px; margin-top:8px;">
+            🧪 Save &amp; Test Gmail Connection
+          </button>
+        </div>
       </div>
 
       <div class="card">
@@ -406,7 +430,7 @@
   </script>
 
   <!-- Application Script (ES Module) -->
-  <script type="module" src="/js/app.js?v=8"></script>
+  <script type="module" src="/js/app.js?v=9"></script>
 
   <!-- Global helper for inline openCustomerModal -->
   <script>

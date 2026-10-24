@@ -6,6 +6,7 @@ import path from 'node:path';
 // --- CONFIGURATION & ENV ---
 const STAFF_PIN = process.env.STAFF_PIN || '1234';
 const ADMIN_PIN = process.env.ADMIN_PIN || '9999';
+const GMAIL_PIN = process.env.GMAIL_PIN || '4124';
 const ENV_GMAIL_USER = process.env.GMAIL_USER || process.env.SMTP_USER || '';
 const ENV_GMAIL_PASS = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '';
 
@@ -165,7 +166,7 @@ function jsonResponse(data, status = 200) {
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Pin, X-Role',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Pin, X-Role, X-Gmail-Pin',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
     }
   });
@@ -345,6 +346,15 @@ export default async (req, context) => {
   }
 
   // 5. SETTINGS & GMAIL VERIFICATION
+  if (pathname === '/settings/unlock-gmail' && req.method === 'POST') {
+    const body = await req.json().catch(() => ({}));
+    const pin = (body.pin || '').toString().trim();
+    if (pin === GMAIL_PIN) {
+      return jsonResponse({ success: true, message: 'Gmail settings unlocked' });
+    }
+    return jsonResponse({ error: 'Incorrect PIN' }, 401);
+  }
+
   if (pathname === '/settings') {
     if (req.method === 'GET') {
       return jsonResponse({ settings: sanitizeSettingsForClient(db.settings) });
@@ -355,6 +365,19 @@ export default async (req, context) => {
       }
       const body = await req.json().catch(() => ({}));
       const currentSettings = { ...DEFAULT_SETTINGS, ...(db.settings || {}) };
+
+      // Protect modifying Gmail credentials behind GMAIL_PIN (4124)
+      const isModifyingGmail =
+        body.gmailUser !== undefined ||
+        body.gmailAppPassword !== undefined ||
+        Boolean(body.clearGmailPassword);
+
+      if (isModifyingGmail) {
+        const pin = req.headers.get('x-gmail-pin') || body.gmailPin || '';
+        if (pin.toString().trim() !== GMAIL_PIN) {
+          return jsonResponse({ error: 'PIN 4124 is required to update Gmail settings' }, 403);
+        }
+      }
 
       // Preserve existing App Password unless a new one is explicitly provided
       let updatedAppPassword = currentSettings.gmailAppPassword || '';
@@ -387,6 +410,11 @@ export default async (req, context) => {
 
   if (pathname === '/settings/test-gmail' && req.method === 'POST') {
     const body = await req.json().catch(() => ({}));
+    const pin = req.headers.get('x-gmail-pin') || body.gmailPin || '';
+    if (pin.toString().trim() !== GMAIL_PIN) {
+      return jsonResponse({ error: 'PIN 4124 is required to test or save Gmail settings' }, 403);
+    }
+
     const currentSettings = { ...DEFAULT_SETTINGS, ...(db.settings || {}) };
     const gmailUser = (body.gmailUser || currentSettings.gmailUser || ENV_GMAIL_USER || '').trim();
     const rawPass =

@@ -26,7 +26,8 @@ const state = {
     quantities: {} // { [itemId]: { mon: 0, tues: 0, ... } }
   },
   sendCountdown: null,
-  sendTimeoutId: null
+  sendTimeoutId: null,
+  gmailUnlocked: sessionStorage.getItem('gmailUnlocked') === 'true'
 };
 
 // --- INITIALIZATION ---
@@ -1087,6 +1088,18 @@ function renderSettingsTab() {
     }
   }
 
+  const lockedView = document.getElementById('gmailLockedView');
+  const unlockedView = document.getElementById('gmailUnlockedView');
+  if (lockedView && unlockedView) {
+    if (state.gmailUnlocked) {
+      lockedView.style.display = 'none';
+      unlockedView.style.display = 'block';
+    } else {
+      lockedView.style.display = 'block';
+      unlockedView.style.display = 'none';
+    }
+  }
+
   const adminOnlyFields = document.querySelectorAll('.admin-only-setting');
   adminOnlyFields.forEach(el => {
     el.style.display = state.role === 'admin' ? 'block' : 'none';
@@ -1172,6 +1185,51 @@ function initModals() {
     }
   });
 
+  // Unlock Gmail PIN Wall (4124)
+  async function handleUnlockGmail() {
+    const pinInput = document.getElementById('gmailPinInput');
+    const errEl = document.getElementById('gmailPinError');
+    const pin = pinInput?.value.trim() || '';
+    if (!pin) {
+      if (errEl) {
+        errEl.textContent = 'Please enter PIN';
+        errEl.style.display = 'block';
+      }
+      return;
+    }
+    try {
+      await Api.unlockGmail(pin);
+      state.gmailUnlocked = true;
+      sessionStorage.setItem('gmailUnlocked', 'true');
+      if (errEl) errEl.style.display = 'none';
+      if (pinInput) pinInput.value = '';
+      renderSettingsTab();
+      showToast('Gmail settings unlocked 🔓', 'success');
+    } catch (err) {
+      if (errEl) {
+        errEl.textContent = err.message || 'Incorrect PIN';
+        errEl.style.display = 'block';
+      }
+    }
+  }
+
+  document.getElementById('btnUnlockGmail')?.addEventListener('click', handleUnlockGmail);
+  document.getElementById('gmailPinInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleUnlockGmail();
+    }
+  });
+
+  // Re-lock Gmail PIN Wall
+  document.getElementById('btnLockGmail')?.addEventListener('click', () => {
+    state.gmailUnlocked = false;
+    sessionStorage.removeItem('gmailUnlocked');
+    Api.setGmailPin('');
+    renderSettingsTab();
+    showToast('Gmail settings locked 🔒', 'info');
+  });
+
   // Test & Save Gmail Connection button
   document.getElementById('btnTestGmail')?.addEventListener('click', async () => {
     const btn = document.getElementById('btnTestGmail');
@@ -1207,20 +1265,22 @@ function initModals() {
       return;
     }
 
-    const gmailUser = document.getElementById('setGmailUser')?.value.trim() || '';
-    const gmailAppPassword = document.getElementById('setGmailAppPassword')?.value.trim() || '';
-
     const updated = {
       businessName: document.getElementById('setBusinessName').value.trim(),
       accountNumber: document.getElementById('setAccountNo').value.trim(),
       sortCode: document.getElementById('setSortCode').value.trim(),
       bccEmail: document.getElementById('setBccEmail').value.trim(),
-      nextInvoiceNo: parseInt(document.getElementById('setNextNo').value, 10) || 1001,
-      gmailUser
+      nextInvoiceNo: parseInt(document.getElementById('setNextNo').value, 10) || 1001
     };
 
-    if (gmailAppPassword) {
-      updated.gmailAppPassword = gmailAppPassword;
+    // Only submit Gmail credentials if the Gmail PIN wall is unlocked
+    if (state.gmailUnlocked) {
+      const gmailUser = document.getElementById('setGmailUser')?.value.trim() || '';
+      const gmailAppPassword = document.getElementById('setGmailAppPassword')?.value.trim() || '';
+      updated.gmailUser = gmailUser;
+      if (gmailAppPassword) {
+        updated.gmailAppPassword = gmailAppPassword;
+      }
     }
 
     try {

@@ -443,7 +443,7 @@ function updateGrandTotal() {
   }
 }
 
-// --- ACTION BUTTONS: PREVIEW, PDF, ONE-TAP SEND ---
+// --- ACTION BUTTONS: PREVIEW, PDF, SHARE, 1-TAP GMAIL SEND ---
 function initActionButtons() {
   // Preview
   document.getElementById('btnPreview')?.addEventListener('click', () => {
@@ -457,9 +457,27 @@ function initActionButtons() {
     downloadInvoicePdf(data);
   });
 
-  // One-Tap Send
+  // Phone Share Sheet (WhatsApp / Mail backup — runs immediately on tap gesture!)
+  document.getElementById('btnShareSheet')?.addEventListener('click', () => {
+    shareViaPhoneSheet();
+  });
+
+  // 1-Tap Automatic Send via Bakery Gmail
   document.getElementById('btnOneTapSend')?.addEventListener('click', () => {
     startOneTapSendFlow();
+  });
+
+  // Send Now button on Undo Banner
+  document.getElementById('btnSendNow')?.addEventListener('click', async () => {
+    if (state.sendTimeoutId) {
+      clearTimeout(state.sendTimeoutId);
+      state.sendTimeoutId = null;
+    }
+    const toast = document.getElementById('toastUndoContainer');
+    if (toast) toast.style.display = 'none';
+    const data = state.pendingSendData || calculateCurrentInvoiceData();
+    state.pendingSendData = null;
+    await executeGmailSend(data);
   });
 
   // Undo button on Toast
@@ -528,103 +546,177 @@ function showInvoicePreviewModal() {
   modal.style.display = 'flex';
 }
 
-// --- SEND VIA LOCAL EMAIL / SHARE SHEET WITH ATTACHED PDF ---
+// --- 1-TAP AUTOMATIC GMAIL SEND (WITH 5-SECOND UNDO / SEND NOW) ---
 async function startOneTapSendFlow() {
   const data = calculateCurrentInvoiceData();
 
   if (!data.customerEmail) {
-    if (!confirm(`No email address is set for "${data.company}". Do you still want to prepare and send via Mail/WhatsApp?`)) {
-      switchTab('customers');
-      return;
-    }
+    alert(`Please add an email address for "${data.company}" first.\nOpening Customers tab...`);
+    switchTab('customers');
+    const cust = state.customers.find(c => c.id === state.draft.customerId);
+    if (cust) openCustomerModal(cust);
+    return;
   }
 
-  await executeSend(data);
+  // Check if Gmail is configured
+  if (!state.settings.hasGmailConfigured) {
+    setRoleMode('admin');
+    switchTab('settings');
+    showToast('Please enter your Bakery Gmail & 16-character App Password once below.', 'info');
+    setTimeout(() => {
+      document.getElementById('setGmailUser')?.focus();
+    }, 150);
+    return;
+  }
+
+  state.pendingSendData = data;
+
+  // Show 5-second Undo / Send Now Banner
+  const toast = document.getElementById('toastUndoContainer');
+  const toastText = document.getElementById('toastUndoText');
+  if (!toast || !toastText) {
+    await executeGmailSend(data);
+    return;
+  }
+
+  toastText.innerHTML = `Sending to <strong>${data.customerEmail}</strong> in 5s...`;
+  toast.style.display = 'block';
+
+  const bar = toast.querySelector('.toast-progress-bar');
+  if (bar) {
+    bar.style.animation = 'none';
+    bar.offsetHeight; // trigger reflow
+    bar.style.animation = 'countdown 5s linear forwards';
+  }
+
+  if (state.sendTimeoutId) clearTimeout(state.sendTimeoutId);
+
+  state.sendTimeoutId = setTimeout(async () => {
+    toast.style.display = 'none';
+    state.sendTimeoutId = null;
+    state.pendingSendData = null;
+    await executeGmailSend(data);
+  }, 5000);
 }
 
-async function executeSend(data) {
-  showToast('Preparing PDF & opening Mail...', 'info');
+function cancelOneTapSend() {
+  if (state.sendTimeoutId) {
+    clearTimeout(state.sendTimeoutId);
+    state.sendTimeoutId = null;
+  }
+  state.pendingSendData = null;
+  const toast = document.getElementById('toastUndoContainer');
+  if (toast) toast.style.display = 'none';
+  showToast('Send cancelled.', 'info');
+}
+
+async function executeGmailSend(data) {
+  showToast(`Sending Invoice to ${data.customerEmail} via Gmail...`, 'info');
 
   try {
     const nextNo = state.settings.nextInvoiceNo || 1001;
     data.invoiceNo = nextNo;
-    const pdfFile = getInvoicePdfFile(data);
     const pdfBase64 = getInvoicePdfBase64(data);
     data.pdfBase64 = pdfBase64;
 
-    // 1. Save invoice to backend (atomic sequential invoice number)
+    // 1. Reserve sequential invoice number & save invoice record
     const createRes = await Api.createInvoice(data);
     const invoiceNo = createRes.invoiceNo || nextNo;
     data.invoiceNo = invoiceNo;
 
-    // 2. Prepare Email Subject and Body
-    const subject = `Invoice #${invoiceNo} – Happyland Bakery – Week ending ${data.weekEndingFormatted}`;
-    const bodyText = `Dear ${data.company},
+    // Re-generate PDF with confirmed invoice number if different
+    const finalPdfBase64 = invoiceNo === nextNo ? pdfBase64 : getInvoicePdfBase64(data);
 
-Please find attached your invoice #${invoiceNo} for the week ending ${data.weekEndingFormatted}.
+    // 2. Send directly via Bakery Gmail with PDF attached & To: prefilled
+    const sendRes = await Api.sendInvoiceEmail(invoiceNo, {
+      mode: 'gmail',
+      toEmail: data.customerEmail,
+      ccEmail: data.customerCcEmail,
+      pdfBase64: finalPdfBase64,
+      company: data.company,
+      grandTotal: data.grandTotal,
+      weekEndingFormatted: data.weekEndingFormatted
+    });
+
+    // 3. Update next invoice number locally
+    state.settings.nextInvoiceNo = invoiceNo + 1;
+
+    // 4. Clear draft quantities for next invoice
+    state.draft.quantities = {};
+    saveDraft();
+    renderInvoiceItemCards();
+    updateGrandTotal();
+
+    showToast(sendRes.message || `✅ Invoice #${invoiceNo} emailed to ${data.customerEmail}!`, 'success');
+  } catch (err) {
+    console.error('Gmail send error:', err);
+    showToast(`Send failed: ${err.message}`, 'danger');
+  }
+}
+
+// --- BACKUP OPTION: PHONE SHARE SHEET (WHATSAPP / MAIL) ---
+// Runs synchronously on the tap gesture so iOS Safari never blocks navigator.share or clipboard!
+async function shareViaPhoneSheet() {
+  const data = calculateCurrentInvoiceData();
+  const nextNo = state.settings.nextInvoiceNo || 1001;
+  data.invoiceNo = nextNo;
+
+  const pdfFile = getInvoicePdfFile(data);
+  const pdfBase64 = getInvoicePdfBase64(data);
+  data.pdfBase64 = pdfBase64;
+
+  const subject = `Invoice #${nextNo} – Happyland Bakery – Week ending ${data.weekEndingFormatted}`;
+  const bodyText = `Dear ${data.company},
+
+Please find attached your invoice #${nextNo} for the week ending ${data.weekEndingFormatted}.
 
 Total due: £${data.grandTotal.toFixed(2)}
 
 Payment Details:
-Bank: Happyland Bakery Ltd
+Bank: ${state.settings.businessName || 'Happyland Bakery Ltd'}
 Account Number: ${state.settings.accountNumber || '30623245'}
 Sort Code: ${state.settings.sortCode || '20-92-60'}
 
 Thank you for your business,
-Happyland Bakery Ltd`;
+${state.settings.businessName || 'Happyland Bakery Ltd'}`;
 
-    // 3. Web Share API Level 2 (iPhone Safari & Android Chrome)
-    // Directly opens local Mail/Gmail compose with the PDF attached!
+  try {
+    // Copy email to clipboard immediately on the tap gesture
+    if (data.customerEmail && navigator.clipboard) {
+      navigator.clipboard.writeText(data.customerEmail).catch(() => {});
+    }
+
     if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-      // Copy customer email to clipboard so user can paste into 'To:' in Mail with one tap
-      if (data.customerEmail && navigator.clipboard) {
-        try {
-          await navigator.clipboard.writeText(data.customerEmail);
-        } catch (e) {}
-      }
-
+      // Open share sheet immediately while user gesture token is active
       await navigator.share({
         files: [pdfFile],
         title: subject,
         text: bodyText
       });
-
-      // Mark as sent on server
-      await Api.sendInvoiceEmail(invoiceNo, {
-        toEmail: data.customerEmail,
-        pdfBase64
-      });
-
-      showToast(`Invoice #${invoiceNo} ready! ${data.customerEmail ? 'Email copied to clipboard.' : ''}`, 'success');
     } else {
-      // Desktop / browser fallback: download PDF + trigger mailto
       downloadInvoicePdf(data);
       const mailtoUrl = `mailto:${encodeURIComponent(data.customerEmail || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
       window.location.href = mailtoUrl;
-
-      await Api.sendInvoiceEmail(invoiceNo, {
-        toEmail: data.customerEmail,
-        pdfBase64
-      });
-
-      showToast(`Invoice #${invoiceNo} PDF downloaded & Mail opened.`, 'success');
     }
 
-    // 4. Update next invoice number locally
-    state.settings.nextInvoiceNo = invoiceNo + 1;
+    // Save to history in background after share sheet completes
+    const createRes = await Api.createInvoice(data);
+    const invoiceNo = createRes.invoiceNo || nextNo;
+    await Api.sendInvoiceEmail(invoiceNo, {
+      mode: 'share',
+      toEmail: data.customerEmail,
+      pdfBase64
+    });
 
-    // 5. Clear draft quantities for fresh invoice
+    state.settings.nextInvoiceNo = invoiceNo + 1;
     state.draft.quantities = {};
     saveDraft();
     renderInvoiceItemCards();
     updateGrandTotal();
+    showToast(`Invoice #${invoiceNo} shared & saved!`, 'success');
   } catch (err) {
-    if (err.name === 'AbortError') {
-      // User closed the share sheet without picking an app
-      showToast(`Invoice #${data.invoiceNo} saved in History.`, 'info');
-    } else {
-      console.error('Send error:', err);
-      showToast(`Error: ${err.message}`, 'danger');
+    if (err.name !== 'AbortError') {
+      showToast(`Share error: ${err.message}`, 'danger');
     }
   }
 }
@@ -866,7 +958,10 @@ async function loadHistoryTab() {
     container.querySelectorAll('.btn-history-resend').forEach(btn => {
       btn.addEventListener('click', async () => {
         const invNo = parseInt(btn.dataset.no, 10);
+        const origHtml = btn.innerHTML;
         try {
+          btn.disabled = true;
+          btn.innerHTML = `⏳ Sending...`;
           const detail = await Api.getInvoice(invNo);
           const inv = detail.invoice;
           if (!inv) return;
@@ -874,6 +969,20 @@ async function loadHistoryTab() {
             alert('This invoice has no saved customer email address.');
             return;
           }
+
+          if (state.settings.hasGmailConfigured) {
+            const pdfBase64 = getInvoicePdfBase64(inv);
+            await Api.sendInvoiceEmail(invNo, {
+              mode: 'gmail',
+              customerEmail: inv.customerEmail,
+              ccEmail: inv.ccEmail,
+              pdfBase64
+            });
+            showToast(`✅ Invoice #${invNo} sent via Gmail to ${inv.customerEmail}!`, 'success');
+            loadHistoryTab();
+            return;
+          }
+
           const pdfFile = getInvoicePdfFile(inv);
           const subject = `Invoice #${invNo} – Happyland Bakery – Week ending ${inv.weekEndingFormatted}`;
           const bodyText = `Dear ${inv.company},
@@ -899,7 +1008,7 @@ Happyland Bakery Ltd`;
               title: subject,
               text: bodyText
             });
-            showToast(`Invoice #${invNo} opened in Mail!`, 'success');
+            showToast(`Invoice #${invNo} opened in Share Sheet!`, 'success');
           } else {
             downloadInvoicePdf(inv);
             window.location.href = `mailto:${encodeURIComponent(inv.customerEmail || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
@@ -907,6 +1016,9 @@ Happyland Bakery Ltd`;
           }
         } catch (e) {
           if (e.name !== 'AbortError') showToast(e.message, 'danger');
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
         }
       });
     });
@@ -927,6 +1039,29 @@ function renderSettingsTab() {
   document.getElementById('setSortCode').value = s.sortCode || '20-92-60';
   document.getElementById('setBccEmail').value = s.bccEmail || '';
   document.getElementById('setNextNo').value = s.nextInvoiceNo || 1001;
+
+  const gmailUserEl = document.getElementById('setGmailUser');
+  const gmailPassEl = document.getElementById('setGmailAppPassword');
+  const gmailBadgeEl = document.getElementById('gmailStatusBadge');
+
+  if (gmailUserEl) gmailUserEl.value = s.gmailUser || '';
+  if (gmailPassEl) {
+    gmailPassEl.value = '';
+    gmailPassEl.placeholder = s.hasGmailConfigured
+      ? '•••••••••••••••• (Saved — leave blank to keep)'
+      : 'xxxx xxxx xxxx xxxx';
+  }
+  if (gmailBadgeEl) {
+    if (s.hasGmailConfigured) {
+      gmailBadgeEl.textContent = `✅ Connected (${s.gmailUser})`;
+      gmailBadgeEl.style.background = '#d1fae5';
+      gmailBadgeEl.style.color = '#065f46';
+    } else {
+      gmailBadgeEl.textContent = '⚠️ Setup Needed';
+      gmailBadgeEl.style.background = '#fef3c7';
+      gmailBadgeEl.style.color = '#92400e';
+    }
+  }
 
   const adminOnlyFields = document.querySelectorAll('.admin-only-setting');
   adminOnlyFields.forEach(el => {
@@ -1013,25 +1148,61 @@ function initModals() {
     }
   });
 
+  // Test & Save Gmail Connection button
+  document.getElementById('btnTestGmail')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnTestGmail');
+    const gmailUser = document.getElementById('setGmailUser')?.value.trim() || '';
+    const gmailAppPassword = document.getElementById('setGmailAppPassword')?.value.trim() || '';
+
+    if (!gmailUser) {
+      showToast('Please enter your Bakery Gmail address first.', 'danger');
+      return;
+    }
+
+    const origText = btn.innerHTML;
+    try {
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Verifying with Gmail...';
+      const res = await Api.testGmail({ gmailUser, gmailAppPassword });
+      state.settings = res.settings;
+      renderSettingsTab();
+      showToast(res.message || '✅ Gmail connected & saved!', 'success');
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+    }
+  });
+
   // Settings Save (Admin Only)
   document.getElementById('settingsForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (state.role !== 'admin') {
-      alert('Admin PIN required to update settings.');
+      alert('Switch to Admin mode at the top right to update settings.');
       return;
     }
+
+    const gmailUser = document.getElementById('setGmailUser')?.value.trim() || '';
+    const gmailAppPassword = document.getElementById('setGmailAppPassword')?.value.trim() || '';
 
     const updated = {
       businessName: document.getElementById('setBusinessName').value.trim(),
       accountNumber: document.getElementById('setAccountNo').value.trim(),
       sortCode: document.getElementById('setSortCode').value.trim(),
       bccEmail: document.getElementById('setBccEmail').value.trim(),
-      nextInvoiceNo: parseInt(document.getElementById('setNextNo').value, 10) || 1001
+      nextInvoiceNo: parseInt(document.getElementById('setNextNo').value, 10) || 1001,
+      gmailUser
     };
+
+    if (gmailAppPassword) {
+      updated.gmailAppPassword = gmailAppPassword;
+    }
 
     try {
       const res = await Api.saveSettings(updated);
       state.settings = res.settings;
+      renderSettingsTab();
       showToast('Settings saved successfully', 'success');
     } catch (err) {
       showToast(err.message, 'danger');

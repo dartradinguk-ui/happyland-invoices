@@ -208,6 +208,13 @@ export const Api = {
     });
   },
 
+  async testGmail(payload) {
+    return this.request('/settings/test-gmail', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
   async createInvoice(invoiceData) {
     return this.request('/invoices', {
       method: 'POST',

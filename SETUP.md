@@ -1,45 +1,42 @@
 # Happyland Bakery Invoice Tool — Quick Setup Guide
 
-This tool lets staff create invoices on their mobile phones and send them **directly through their phone's local default email app (Apple Mail on iPhone, Gmail on Android)** with the **PDF already attached**.
+This tool lets staff create invoices on their mobile phones and send them **automatically in 1 tap from your bakery's own Gmail account** (`smtp.gmail.com`) — with the **PDF invoice attached** and the **customer's `To:` email address filled in automatically**.
 
-No third-party email services (like Brevo) or API keys are required.
+Every sent invoice also appears in your bakery Gmail's **Sent** folder automatically!
+
+---
+
+## 📧 One-Time Setup: Connect Your Bakery Gmail (Takes 1 Minute)
+
+Because Google protects regular Gmail passwords with 2-Step Verification, Gmail provides a special **16-character App Password** so your invoice app can send emails directly from your Gmail account.
+
+### Step 1: Generate a 16-character Google App Password
+1. Sign into your bakery's Google / Gmail account and open:  
+   👉 **[https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)**  
+   *(Note: If Google says App Passwords isn't available, make sure **2-Step Verification** is turned ON first at [myaccount.google.com/signinoptions/two-step-verification](https://myaccount.google.com/signinoptions/two-step-verification)).*
+2. Under **App name**, type `Happyland Invoices` and click **Create**.
+3. Google will display a **16-letter code** inside a yellow box (e.g. `abcd efgh ijkl mnop`). Copy it.
+
+### Step 2: Save it in the App's Settings Tab
+1. Open the Happyland Bakery Invoice app and tap **Admin ⚙️** in the top-right corner.
+2. Tap the **⚙️ Settings** tab at the bottom.
+3. Under **📧 1-Tap Gmail Auto-Send**:
+   - **Bakery Gmail Address**: Enter your Gmail address (e.g. `happylandbakery@gmail.com`).
+   - **Gmail 16-Character App Password**: Paste the 16-letter code from Google.
+4. Tap **🔌 Test & Save Gmail Connection**.
+5. Once the badge turns green (**✅ Connected**), **all staff phones** can send invoices with 1 tap!
+
+*(Optional: You can also set `GMAIL_USER` and `GMAIL_APP_PASSWORD` in Netlify → **Site configuration** → **Environment variables** if you prefer).*
 
 ---
 
 ## 📱 How Sending Works on Staff Phones
 
-1. On the **Invoice** tab, select the customer and enter quantities for each day.
-2. Tap the green **✉️ Send** button.
-3. Your phone's native **Share / Mail menu** opens immediately:
-   - The **PDF invoice is already attached** as a real PDF file!
-   - The **Subject** is prefilled (e.g. `Invoice #1001 – Happyland Bakery – Week ending 18.10.2026`).
-   - The **Email body** is prefilled with payment details and summary.
-   - The customer's email address is automatically copied to your phone's clipboard, ready to paste into the **To:** field with one tap.
-4. Tap **Send** in your email app. Done!
-5. The invoice is automatically numbered and saved to your shared **History** across all staff phones.
-
----
-
-## 🚀 3-Minute Netlify Deployment Guide
-
-Your code is already committed to GitHub at:  
-👉 **[https://github.com/dartradinguk-ui/happyland-invoices](https://github.com/dartradinguk-ui/happyland-invoices)**
-
-### Step 1: Connect Netlify to your GitHub Repo
-1. Log in at **[app.netlify.com](https://app.netlify.com)** and open your invoice site.
-2. Go to **Site configuration** → **Build & deploy** → **Continuous deployment**.
-3. Click **Link repository** → choose **GitHub** → select `dartradinguk-ui/happyland-invoices`.
-4. Netlify will auto-detect settings from `netlify.toml`:
-   - **Publish directory:** `public`
-   - **Functions directory:** `netlify/functions`
-5. Click **Save**.
-
-### Step 2: Set your Staff & Admin PINs
-1. In Netlify, go to **Site configuration** → **Environment variables**.
-2. Click **Add a variable** → **Add a single variable**:
-   - `STAFF_PIN`: `1234` *(Shared with staff to create & send invoices)*
-   - `ADMIN_PIN`: `9999` *(Manager PIN to amend item prices and bank details)*
-3. Go to **Deploys** → **Trigger deploy** → **Deploy site**.
+1. On the **Invoice** tab, select the customer and enter quantities for each day (`Mon`–`Sun`).
+2. Tap the green **✉️ Send** button at the bottom right:
+   - A 5-second **UNDO / Send Now** bar appears at the bottom in case of a mis-tap.
+   - The app generates the PDF, attaches it, fills in the customer's **`To:`** email (plus any CC/BCC), and sends it directly through your bakery Gmail!
+3. Need to share via WhatsApp, AirDrop, or the phone's Share Sheet instead? Tap **📲 Share** right next to Send.
 
 ---
 
@@ -48,15 +45,12 @@ Your code is already committed to GitHub at:
 ### iPhone (Safari):
 1. Open your Netlify site URL in Safari.
 2. Tap the **Share** button (box with an arrow pointing up at the bottom).
-3. Scroll down and tap **Add to Home Screen**.
-4. Tap **Add**.
-5. The **Happyland** app icon will appear on your home screen and open in full-screen mode like a native app.
+3. Scroll down and tap **Add to Home Screen** → **Add**.
 
 ### Android (Chrome):
 1. Open your Netlify site URL in Chrome.
 2. Tap the **three dots menu (⋮)** in the top-right corner.
 3. Tap **Install app** (or **Add to Home screen**).
-4. Tap **Install**.
 
 ---
 
@@ -64,9 +58,8 @@ Your code is already committed to GitHub at:
 
 | What you want to do | How to do it |
 |---|---|
-| **Create an invoice** | Open app → Pick customer → Tap day pills (`Mon`–`Sun`) → Use `−` and `+` buttons to enter quantities. |
-| **Send with attached PDF** | Tap **✉️ Send** → Your phone's Mail/Gmail opens with the PDF attached → Tap Send. |
-| **Amend item prices** *(Manager)* | Enter **Admin PIN** (top-right 🔑) → Tap 🥖 **Items** → Tap ✏️ to change price or name. Applies across all phones immediately. |
-| **Add / edit customers** | Tap 👥 **Customers** → Tap **+ New Customer** or ✏️ to edit email & address. |
-| **Re-download past invoices** | Tap 🗂 **History** → Tap **📄 Download PDF** or **✉️ Re-send**. |
-| **Export backup** *(Manager)* | Go to ⚙️ **Settings** → Tap **📥 Export JSON Backup**. |
+| **Create & send an invoice** | Pick customer → Enter daily quantities → Tap **✉️ Send** (sends automatically via Gmail with PDF attached & `To:` filled in). |
+| **Switch between Staff & Admin** | Tap **Staff** or **Admin ⚙️** in the top-right header (instant switch, no PIN needed). |
+| **Amend item prices** | Switch to **Admin ⚙️** → Tap 🥖 **Items** → Tap ✏️ to change price or name. Updates across all phones automatically. |
+| **Add / edit / delete customers** | Tap 👥 **Customers** → Tap **+ New Customer**, ✏️ Edit, or 🗑️ Delete (in Admin mode). |
+| **Re-download or re-send past invoices** | Tap 🗂 **History** → Tap **📄 Download PDF** or **✉️ Re-send**. |

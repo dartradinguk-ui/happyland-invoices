@@ -19,7 +19,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
   <!-- Mobile Stylesheet -->
-  <link rel="stylesheet" href="/css/styles.css?v=4">
+  <link rel="stylesheet" href="/css/styles.css?v=6">
 </head>
 <body>
 
@@ -50,7 +50,10 @@
       <div class="toast-text" id="toastUndoText">
         Sending invoice in 5s...
       </div>
-      <button type="button" id="btnUndoSend" class="btn-undo">UNDO</button>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <button type="button" id="btnSendNow" class="btn-undo" style="background:#059669;">Send Now</button>
+        <button type="button" id="btnUndoSend" class="btn-undo">UNDO</button>
+      </div>
       <div class="toast-progress-bar"></div>
     </div>
   </div>
@@ -174,12 +177,43 @@
 
     <!-- TAB 5: SETTINGS -->
     <section id="tab-settings" class="tab-pane">
-      <div class="card">
-        <h2 style="font-size: 16px; margin-bottom: 12px;">Bakery & Bank Details</h2>
+      <div id="settingsStaffNotice" class="alert alert-info">
+        ℹ️ Currently in <strong>Staff</strong> mode. Switch to <strong>Admin ⚙️</strong> in the top header to edit Gmail &amp; bakery settings.
+      </div>
 
-        <div id="settingsStaffNotice" class="alert alert-info">
-          ℹ️ Currently in <strong>Staff</strong> mode. Switch to <strong>Admin ⚙️</strong> in the top header to edit bakery & bank settings.
+      <!-- GMAIL 1-TAP AUTO-SEND SETUP CARD -->
+      <div class="card admin-only-setting" style="margin-bottom: 12px; border: 1.5px solid #f59e0b;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <h2 style="font-size: 16px;">📧 1-Tap Gmail Auto-Send</h2>
+          <span id="gmailStatusBadge" style="font-size:11px; font-weight:700; padding:3px 8px; border-radius:12px; background:#fef3c7; color:#92400e;">Not Configured</span>
         </div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          Send invoices with the PDF attached and the customer's <strong>To:</strong> email filled in automatically from your Bakery Gmail account.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label">Bakery Gmail Address:</label>
+          <input type="email" id="setGmailUser" class="form-control" placeholder="e.g. happylandbakery@gmail.com" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Google 16-Character App Password:</label>
+          <input type="password" id="setGmailAppPassword" class="form-control" placeholder="xxxx xxxx xxxx xxxx" autocomplete="new-password" />
+          <div style="font-size:11px; color:var(--text-muted); margin-top:6px; background:#f8fafc; padding:8px 10px; border-radius:6px; border:1px solid var(--border);">
+            <strong>How to get your 16-character App Password (1 min):</strong><br/>
+            1. Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" style="color:var(--primary-dark); font-weight:700;">myaccount.google.com/apppasswords</a> (ensure 2-Step Verification is ON).<br/>
+            2. Enter name <code>Happyland Invoices</code> and click <strong>Create</strong>.<br/>
+            3. Paste the 16-letter code above and tap <strong>Save &amp; Test Gmail</strong>.
+          </div>
+        </div>
+
+        <button type="button" id="btnTestGmail" class="btn-action btn-action-success" style="width:100%; height:44px; margin-top:8px;">
+          🧪 Save &amp; Test Gmail Connection
+        </button>
+      </div>
+
+      <div class="card">
+        <h2 style="font-size: 16px; margin-bottom: 12px;">Bakery &amp; Bank Details</h2>
 
         <form id="settingsForm">
           <div class="form-group admin-only-setting">
@@ -198,7 +232,7 @@
           </div>
 
           <div class="form-group admin-only-setting">
-            <label class="form-label">Bakery BCC Email (gets a copy of every invoice):</label>
+            <label class="form-label">Extra BCC Email (optional — Gmail also saves a copy in your Sent folder):</label>
             <input type="email" id="setBccEmail" class="form-control" placeholder="owner@happylandbakery.co.uk" />
           </div>
 
@@ -216,7 +250,7 @@
       </div>
 
       <div class="card admin-only-setting" style="margin-top: 12px;">
-        <h3 style="font-size: 15px; margin-bottom: 8px;">Backup & Data Protection</h3>
+        <h3 style="font-size: 15px; margin-bottom: 8px;">Backup &amp; Data Protection</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
           Download a full backup of all customers, items, and settings to your phone or computer.
         </p>
@@ -237,12 +271,15 @@
       </div>
       <div class="bottom-actions">
         <button type="button" id="btnPreview" class="btn-action btn-action-secondary" title="Preview Invoice">
-          👁️ Preview
+          👁️
         </button>
         <button type="button" id="btnDownloadPdf" class="btn-action btn-action-primary" title="Download PDF">
           📄 PDF
         </button>
-        <button type="button" id="btnOneTapSend" class="btn-action btn-action-success" title="One-Tap Send">
+        <button type="button" id="btnShareSheet" class="btn-action btn-action-secondary" title="Share via Phone Menu (WhatsApp / Mail)">
+          📲 Share
+        </button>
+        <button type="button" id="btnOneTapSend" class="btn-action btn-action-success" title="1-Tap Auto-Send via Gmail">
           ✉️ Send
         </button>
       </div>
@@ -364,7 +401,7 @@
   </script>
 
   <!-- Application Script (ES Module) -->
-  <script type="module" src="/js/app.js?v=5"></script>
+  <script type="module" src="/js/app.js?v=6"></script>
 
   <!-- Global helper for inline openCustomerModal -->
   <script>

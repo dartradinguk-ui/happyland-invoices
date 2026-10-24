@@ -98,12 +98,19 @@ export async function sendInvoiceViaGmail({
   }
 
   if (attachmentBase64 && attachmentName) {
-    const cleanBase64 = attachmentBase64.replace(/^data:application\/pdf;base64,/, '');
+    let cleanBase64 = attachmentBase64;
+    const commaIdx = cleanBase64.indexOf(',');
+    if (cleanBase64.startsWith('data:') && commaIdx !== -1) {
+      cleanBase64 = cleanBase64.slice(commaIdx + 1);
+    }
+    // Remove any unexpected whitespace or newlines from the base64 string
+    cleanBase64 = cleanBase64.replace(/\s+/g, '');
+    const pdfBuffer = Buffer.from(cleanBase64, 'base64');
+
     mailOptions.attachments = [
       {
         filename: attachmentName,
-        content: cleanBase64,
-        encoding: 'base64',
+        content: pdfBuffer,
         contentType: 'application/pdf'
       }
     ];

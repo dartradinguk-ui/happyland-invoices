@@ -167,8 +167,8 @@ export function downloadInvoicePdf(invoiceData) {
 export function getInvoicePdfBase64(invoiceData) {
   const doc = createInvoiceDoc(invoiceData);
   const dataUri = doc.output('datauristring');
-  // Strip URI header if present
-  return dataUri.replace(/^data:application\/pdf;base64,/, '');
+  const commaIdx = dataUri.indexOf(',');
+  return commaIdx !== -1 ? dataUri.slice(commaIdx + 1).trim() : dataUri.trim();
 }
 
 export function getInvoicePdfBlob(invoiceData) {

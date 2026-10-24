@@ -70,6 +70,16 @@ function sanitizeSettingsForClient(settings = {}) {
   };
 }
 
+function cleanPdfBase64(str) {
+  if (!str) return null;
+  let s = str;
+  const commaIdx = s.indexOf(',');
+  if (s.startsWith('data:') && commaIdx !== -1) {
+    s = s.slice(commaIdx + 1);
+  }
+  return s.replace(/\s+/g, '');
+}
+
 // --- STORAGE ADAPTER (Netlify Blobs with Local File/Memory Fallback) ---
 let localStoreCache = null;
 const LOCAL_DATA_FILE = path.join(process.cwd(), '.data', 'store.json');
@@ -443,7 +453,7 @@ export default async (req, context) => {
         weekEndingFormatted: body.weekEndingFormatted,
         items: body.items,
         grandTotal: parseFloat(body.grandTotal || 0),
-        pdfBase64: body.pdfBase64 || null,
+        pdfBase64: cleanPdfBase64(body.pdfBase64),
         createdAt: new Date().toISOString(),
         createdBy: auth.role,
         sentAt: null,
@@ -481,7 +491,7 @@ export default async (req, context) => {
         db.invoices[invoiceIndex].sentAt = new Date().toISOString();
         db.invoices[invoiceIndex].sentStatus = 'shared';
         db.invoices[invoiceIndex].sentTo = (body.toEmail || invoice?.customerEmail || '').trim();
-        if (body.pdfBase64) db.invoices[invoiceIndex].pdfBase64 = body.pdfBase64;
+        if (body.pdfBase64) db.invoices[invoiceIndex].pdfBase64 = cleanPdfBase64(body.pdfBase64);
         await saveStoreData(storeWrapper, db);
       }
       return jsonResponse({
@@ -510,7 +520,8 @@ export default async (req, context) => {
       return jsonResponse({ error: 'Customer email address (To:) is missing.' }, 400);
     }
 
-    const pdfBase64 = body.pdfBase64 || invoice?.pdfBase64;
+    const rawPdfBase64 = body.pdfBase64 || invoice?.pdfBase64;
+    const pdfBase64 = cleanPdfBase64(rawPdfBase64);
     if (!pdfBase64) {
       return jsonResponse({ error: 'PDF attachment data is missing.' }, 400);
     }

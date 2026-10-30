@@ -1,4 +1,4 @@
-const CACHE_NAME = 'happyland-invoices-v9.0';
+const CACHE_NAME = 'happyland-invoices-v10.0';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

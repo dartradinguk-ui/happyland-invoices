@@ -1,7 +1,7 @@
 import { Api } from './api.js';
 import { createInvoiceDoc, downloadInvoicePdf, getInvoicePdfBase64, getInvoicePdfFile, generateFilename } from './pdf.js';
 
-// --- APPLICATION STATE ---
+// --- APPLICATION CONSTANTS & HELPERS ---
 const DAYS = ['mon', 'tues', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = {
   mon: 'Mon',
@@ -12,133 +12,26 @@ const DAY_LABELS = {
   sat: 'Sat',
   sun: 'Sun'
 };
-
-const state = {
-  role: 'staff',
-  settings: {},
-  customers: [],
-  items: [],
-  activeTab: 'invoice',
-  activeDay: 'mon',
-  draft: {
-    customerId: '',
-    weekEnding: '',
-    quantities: {} // { [itemId]: { mon: 0, tues: 0, ... } }
-  },
-  sendCountdown: null,
-  sendTimeoutId: null,
-  gmailUnlocked: sessionStorage.getItem('gmailUnlocked') === 'true'
+const DAY_FULL_NAMES = {
+  mon: 'Monday',
+  tues: 'Tuesday',
+  wed: 'Wednesday',
+  thu: 'Thursday',
+  fri: 'Friday',
+  sat: 'Saturday',
+  sun: 'Sunday'
 };
 
-// --- INITIALIZATION ---
-document.addEventListener('DOMContentLoaded', async () => {
-  initServiceWorker();
-  initTabs();
-  initDayPills();
-  initModals();
-  initActionButtons();
-
-  // Load directly without mandatory PIN prompt
-  state.role = Api.getRole() || 'admin';
-  await loadInitialData();
-});
-
-function initServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
-      console.warn('SW register error:', err);
-    });
-  }
+function getTodayDayKey() {
+  const dayOfWeek = new Date().getDay(); // 0 is Sunday, 1 is Monday ... 6 is Saturday
+  const map = { 0: 'sun', 1: 'mon', 2: 'tues', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat' };
+  return map[dayOfWeek] || 'mon';
 }
 
-// --- BOOTSTRAP & REAL-TIME SYNC ---
-async function loadInitialData() {
-  await syncLatestData(false);
-  loadDraft();
-  initAutoSync();
-}
-
-async function syncLatestData(silent = true) {
-  try {
-    const data = await Api.bootstrap();
-    state.settings = data.settings || {};
-    state.customers = data.customers || [];
-    state.items = data.items || [];
-
-    updateRoleBadge();
-    renderCustomerSelect();
-    renderItemsTab();
-    renderCustomersTab();
-    renderSettingsTab();
-    renderInvoiceItemCards();
-    updateGrandTotal();
-  } catch (err) {
-    if (!silent) {
-      console.warn('Sync error:', err);
-      showToast('Operating in offline cache mode.', 'info');
-    }
-  }
-}
-
-// Automatically sync across all staff phones
-function initAutoSync() {
-  // 1. Sync when user switches back to the tab or unlocks phone
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      syncLatestData(true);
-    }
-  });
-
-  window.addEventListener('focus', () => {
-    syncLatestData(true);
-  });
-
-  // 2. Periodic sync every 25 seconds in background
-  setInterval(() => {
-    syncLatestData(true);
-  }, 25000);
-}
-
-function updateRoleBadge() {
-  const staffBtn = document.getElementById('btnRoleStaff');
-  const adminBtn = document.getElementById('btnRoleAdmin');
-  if (staffBtn && adminBtn) {
-    staffBtn.classList.toggle('active', state.role === 'staff');
-    adminBtn.classList.toggle('active', state.role === 'admin');
-  }
-}
-
-// --- LOCAL DRAFT PERSISTENCE ---
-const DRAFT_KEY = 'happyland_invoice_draft';
-
-function saveDraft() {
-  localStorage.setItem(DRAFT_KEY, JSON.stringify(state.draft));
-}
-
-function loadDraft() {
-  // Set default week ending date (next Sunday in local time)
-  const defaultDate = getDefaultWeekEnding();
-  
-  try {
-    const saved = localStorage.getItem(DRAFT_KEY);
-    if (saved) {
-      state.draft = JSON.parse(saved);
-      if (!state.draft.weekEnding) state.draft.weekEnding = defaultDate;
-    } else {
-      state.draft = {
-        customerId: state.customers[0]?.id || '',
-        weekEnding: defaultDate,
-        quantities: {}
-      };
-    }
-  } catch (e) {
-    state.draft = { customerId: state.customers[0]?.id || '', weekEnding: defaultDate, quantities: {} };
-  }
-
-  const dateInput = document.getElementById('weekEndingInput');
-  if (dateInput) {
-    dateInput.value = state.draft.weekEnding;
-  }
+function getYesterdayDayKey(dayKey) {
+  const idx = DAYS.indexOf(dayKey);
+  if (idx <= 0) return DAYS[DAYS.length - 1]; // mon -> sun
+  return DAYS[idx - 1];
 }
 
 function getDefaultWeekEnding() {
@@ -163,6 +56,149 @@ function formatDateDisplay(yyyyMmDd) {
   return yyyyMmDd;
 }
 
+function getWeekRangeText(weekEndingDateStr) {
+  if (!weekEndingDateStr) return 'This Week';
+  const parts = weekEndingDateStr.split('-');
+  if (parts.length !== 3) return weekEndingDateStr;
+  const sunday = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  const monday = new Date(sunday);
+  monday.setDate(sunday.getDate() - 6);
+
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monStr = `Mon ${monday.getDate()} ${months[monday.getMonth()]}`;
+  const sunStr = `Sun ${sunday.getDate()} ${months[sunday.getMonth()]}`;
+  return `${monStr} – ${sunStr}`;
+}
+
+// --- APPLICATION STATE ---
+const state = {
+  role: 'staff',
+  settings: {},
+  customers: [],
+  items: [],
+  orders: [],               // Cloud-synced open customer orders
+  activeTab: 'invoice',     // Deliveries / Orders tab
+  activeView: 'home',       // 'home' (Customer Cards list) or 'entry' (Single Customer Today)
+  activeCustomerId: null,
+  activeDay: getTodayDayKey(),
+  activeWeekEnding: getDefaultWeekEnding(),
+  isDirty: false,
+  isSaving: false,
+  saveTimeoutId: null,
+  sendCountdown: null,
+  sendTimeoutId: null,
+  gmailUnlocked: sessionStorage.getItem('gmailUnlocked') === 'true'
+};
+
+// --- INITIALIZATION ---
+document.addEventListener('DOMContentLoaded', async () => {
+  initServiceWorker();
+  initTabs();
+  initDayPills();
+  initModals();
+  initActionButtons();
+  initWeekPicker();
+
+  state.role = Api.getRole() || 'admin';
+  await loadInitialData();
+});
+
+function initServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.warn('SW register error:', err);
+    });
+  }
+}
+
+// --- BOOTSTRAP & REAL-TIME SYNC ---
+async function loadInitialData() {
+  await syncLatestData(false);
+  initAutoSync();
+}
+
+async function syncLatestData(silent = true) {
+  try {
+    const data = await Api.bootstrap();
+    state.settings = data.settings || {};
+    state.customers = data.customers || [];
+    state.items = data.items || [];
+
+    // Avoid overwriting local order in progress if user is actively typing
+    if (!state.isSaving && !state.isDirty) {
+      state.orders = data.orders || [];
+    }
+
+    updateRoleBadge();
+    renderItemsTab();
+    renderCustomersTab();
+    renderSettingsTab();
+
+    if (state.activeTab === 'invoice') {
+      if (state.activeView === 'home') {
+        renderDeliveriesHome();
+      } else {
+        renderInvoiceItemCards();
+        updateEntrySummary();
+        updateDayPillBadges();
+      }
+    }
+  } catch (err) {
+    if (!silent) {
+      console.warn('Sync error:', err);
+      showToast('Operating in offline mode.', 'info');
+    }
+  }
+}
+
+function initAutoSync() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      syncLatestData(true);
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    syncLatestData(true);
+  });
+
+  setInterval(() => {
+    syncLatestData(true);
+  }, 25000);
+}
+
+function updateRoleBadge() {
+  const staffBtn = document.getElementById('btnRoleStaff');
+  const adminBtn = document.getElementById('btnRoleAdmin');
+  if (staffBtn && adminBtn) {
+    staffBtn.classList.toggle('active', state.role === 'staff');
+    adminBtn.classList.toggle('active', state.role === 'admin');
+  }
+}
+
+// --- WEEK PICKER INITIALIZER ---
+function initWeekPicker() {
+  const dateInput = document.getElementById('weekEndingInput');
+  const toggleBtn = document.getElementById('btnToggleWeekPicker');
+  const collapse = document.getElementById('weekPickerCollapse');
+
+  if (dateInput) {
+    dateInput.value = state.activeWeekEnding;
+    dateInput.addEventListener('change', () => {
+      state.activeWeekEnding = dateInput.value;
+      renderDeliveriesHome();
+    });
+  }
+
+  if (toggleBtn && collapse) {
+    toggleBtn.addEventListener('click', () => {
+      const isHidden = collapse.style.display === 'none' || !collapse.style.display;
+      collapse.style.display = isHidden ? 'block' : 'none';
+      toggleBtn.textContent = isHidden ? 'Hide Week ▴' : 'Change Week ▾';
+    });
+  }
+}
+
 // --- TABS & NAVIGATION ---
 function initTabs() {
   const navBtns = document.querySelectorAll('.nav-item');
@@ -183,18 +219,431 @@ function switchTab(tabName) {
     p.classList.toggle('active', p.id === `tab-${tabName}`);
   });
 
-  // Sticky bottom action bar only shows on the 'invoice' tab
+  // Sticky bottom action bar only shows on 'invoice' home view
   const bottomBar = document.getElementById('stickyBottomBar');
   if (bottomBar) {
-    bottomBar.style.display = tabName === 'invoice' ? 'block' : 'none';
+    bottomBar.style.display = (tabName === 'invoice' && state.activeView === 'home') ? 'block' : 'none';
   }
 
-  // Auto-refresh tabs and sync cloud data when viewed
   syncLatestData(true);
+  if (tabName === 'invoice') renderDeliveriesHome();
   if (tabName === 'history') loadHistoryTab();
   if (tabName === 'customers') renderCustomersTab();
   if (tabName === 'items') renderItemsTab();
   if (tabName === 'settings') renderSettingsTab();
+}
+
+// --- ORDER DATA HELPERS ---
+function getCustomerOrder(customerId, createIfMissing = false) {
+  state.orders = state.orders || [];
+  let order = state.orders.find(o => o.customerId === customerId && o.weekEnding === state.activeWeekEnding && o.status === 'open');
+  if (!order && createIfMissing) {
+    const cust = state.customers.find(c => c.id === customerId);
+    order = {
+      id: 'order_' + customerId + '_' + state.activeWeekEnding.replace(/-/g, '') + '_' + Date.now().toString(36),
+      customerId,
+      company: cust?.name || '',
+      customerEmail: cust?.email || '',
+      customerCcEmail: cust?.ccEmail || '',
+      customerAddress: cust?.address || '',
+      weekEnding: state.activeWeekEnding,
+      weekEndingFormatted: formatDateDisplay(state.activeWeekEnding),
+      status: 'open',
+      quantities: {},
+      grandTotal: 0,
+      items: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    state.orders.push(order);
+  }
+  return order;
+}
+
+function calculateOrderTotals(order) {
+  if (!order) return { grandTotal: 0, dayTotals: {}, dayTotalPrices: {}, weekTotalUnits: 0, lineItems: [] };
+  let grandTotal = 0;
+  let weekTotalUnits = 0;
+  const dayTotals = { mon: 0, tues: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 };
+  const dayTotalPrices = { mon: 0, tues: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 };
+
+  const quantities = order.quantities || {};
+
+  const lineItems = (state.items || []).map(item => {
+    const q = quantities[item.id] || {};
+    const mon = parseInt(q.mon || 0, 10);
+    const tues = parseInt(q.tues || 0, 10);
+    const wed = parseInt(q.wed || 0, 10);
+    const thu = parseInt(q.thu || 0, 10);
+    const fri = parseInt(q.fri || 0, 10);
+    const sat = parseInt(q.sat || 0, 10);
+    const sun = parseInt(q.sun || 0, 10);
+
+    const total = mon + tues + wed + thu + fri + sat + sun;
+    const itemTotal = total * item.price;
+    grandTotal += itemTotal;
+    weekTotalUnits += total;
+
+    dayTotals.mon += mon;
+    dayTotals.tues += tues;
+    dayTotals.wed += wed;
+    dayTotals.thu += thu;
+    dayTotals.fri += fri;
+    dayTotals.sat += sat;
+    dayTotals.sun += sun;
+
+    dayTotalPrices.mon += mon * item.price;
+    dayTotalPrices.tues += tues * item.price;
+    dayTotalPrices.wed += wed * item.price;
+    dayTotalPrices.thu += thu * item.price;
+    dayTotalPrices.fri += fri * item.price;
+    dayTotalPrices.sat += sat * item.price;
+    dayTotalPrices.sun += sun * item.price;
+
+    return {
+      itemId: item.id,
+      name: item.name,
+      cost: item.price,
+      mon,
+      tues,
+      wed,
+      thu,
+      fri,
+      sat,
+      sun,
+      total,
+      itemTotal
+    };
+  });
+
+  grandTotal = parseFloat(grandTotal.toFixed(2));
+  return { grandTotal, dayTotals, dayTotalPrices, weekTotalUnits, lineItems };
+}
+
+function calculateCurrentInvoiceData(targetOrder = null) {
+  const order = targetOrder || getCustomerOrder(state.activeCustomerId, true);
+  const cust = state.customers.find(c => c.id === order.customerId) || {};
+  const totals = calculateOrderTotals(order);
+
+  return {
+    settings: state.settings,
+    company: order.company || cust.name || 'Valued Customer',
+    customerEmail: cust.email || order.customerEmail || '',
+    customerCcEmail: cust.ccEmail || order.customerCcEmail || '',
+    customerAddress: cust.address || order.customerAddress || '',
+    weekEnding: order.weekEnding || state.activeWeekEnding,
+    weekEndingFormatted: order.weekEndingFormatted || formatDateDisplay(state.activeWeekEnding),
+    items: totals.lineItems,
+    grandTotal: totals.grandTotal,
+    weekTotalUnits: totals.weekTotalUnits
+  };
+}
+
+// --- SCREEN 1: DELIVERIES HOME (CUSTOMER CARDS) ---
+function renderDeliveriesHome() {
+  const container = document.getElementById('deliveriesCustomerCards');
+  const weekLabel = document.getElementById('homeWeekRangeLabel');
+  const banner = document.getElementById('endOfWeekBanner');
+  const bannerSub = document.getElementById('endOfWeekBannerSub');
+  const grandTotalDisplay = document.getElementById('grandTotalDisplay');
+  const searchInput = document.getElementById('homeCustomerSearchInput');
+
+  if (weekLabel) {
+    weekLabel.textContent = `This Week: ${getWeekRangeText(state.activeWeekEnding)}`;
+  }
+
+  const query = (searchInput?.value || '').toLowerCase().trim();
+  const todayKey = getTodayDayKey();
+
+  let customers = (state.customers || []).filter(c => !c.archived);
+  if (query) {
+    customers = customers.filter(c =>
+      c.name.toLowerCase().includes(query) ||
+      (c.email && c.email.toLowerCase().includes(query)) ||
+      (c.address && c.address.toLowerCase().includes(query))
+    );
+  }
+
+  // Calculate order stats per customer
+  const customerCardsData = customers.map(cust => {
+    const order = getCustomerOrder(cust.id);
+    const totals = calculateOrderTotals(order);
+    const todayUnits = totals.dayTotals[todayKey] || 0;
+    const hasTodayDelivery = todayUnits > 0;
+    return {
+      cust,
+      order,
+      totals,
+      todayUnits,
+      hasTodayDelivery
+    };
+  });
+
+  // Sort: Customers not yet done today first, then completed ones
+  customerCardsData.sort((a, b) => {
+    if (a.hasTodayDelivery === b.hasTodayDelivery) {
+      return a.cust.name.localeCompare(b.cust.name);
+    }
+    return a.hasTodayDelivery ? 1 : -1;
+  });
+
+  // Calculate overall totals
+  let allCustomersWeekTotal = 0;
+  let readyToSendCount = 0;
+  customerCardsData.forEach(item => {
+    allCustomersWeekTotal += item.totals.grandTotal;
+    if (item.totals.grandTotal > 0) {
+      readyToSendCount++;
+    }
+  });
+
+  if (grandTotalDisplay) {
+    grandTotalDisplay.textContent = `£${allCustomersWeekTotal.toFixed(2)}`;
+  }
+
+  // End-of-week reminder banner
+  if (banner && bannerSub) {
+    if (readyToSendCount > 0) {
+      banner.style.display = 'flex';
+      bannerSub.textContent = `${readyToSendCount} customer invoice${readyToSendCount === 1 ? '' : 's'} ready to send`;
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  if (!container) return;
+
+  if (customerCardsData.length === 0) {
+    container.innerHTML = `
+      <div class="card" style="text-align:center; color:var(--text-muted); padding:30px;">
+        No customers found. Tap "+ Add New Customer" below to start.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = customerCardsData.map(({ cust, totals, todayUnits, hasTodayDelivery }) => {
+    const dayDotsHtml = DAYS.map(d => {
+      const dayUnits = totals.dayTotals[d] || 0;
+      const isFilled = dayUnits > 0;
+      const isToday = d === todayKey;
+      return `
+        <div class="day-dot-item ${isToday ? 'is-today' : ''}" title="${DAY_FULL_NAMES[d]}: ${dayUnits} pcs">
+          <div class="day-dot-label">${DAY_LABELS[d]}</div>
+          <div class="day-dot-bubble ${isFilled ? 'filled' : ''}">
+            ${isFilled ? (dayUnits > 99 ? '99+' : dayUnits) : '·'}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const missingEmail = !cust.email;
+    let badgeHtml = '';
+    if (missingEmail) {
+      badgeHtml = `<span class="card-status-badge warning" title="Customer has no email address">⚠️ No email</span>`;
+    } else if (hasTodayDelivery) {
+      badgeHtml = `<span class="card-status-badge done-today">✅ Today done (${todayUnits} pcs)</span>`;
+    } else {
+      badgeHtml = `<span class="card-status-badge need-today">➕ Add today's delivery</span>`;
+    }
+
+    return `
+      <div class="customer-delivery-card" data-customer-id="${cust.id}">
+        <div class="customer-card-header">
+          <div>
+            <div class="customer-card-name">${cust.name}</div>
+            ${cust.address ? `<div style="font-size:12px; color:var(--text-muted); margin-top:2px;">📍 ${cust.address}</div>` : ''}
+          </div>
+          <div class="customer-card-total">£${totals.grandTotal.toFixed(2)}</div>
+        </div>
+
+        <div class="day-dots-row">
+          ${dayDotsHtml}
+        </div>
+
+        <div class="customer-card-footer">
+          <div>${badgeHtml}</div>
+          <div style="font-size:12px; font-weight:700; color:var(--primary-dark);">
+            ${totals.weekTotalUnits} pcs this week →
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.customer-delivery-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const custId = card.dataset.customerId;
+      if (custId) openCustomerDelivery(custId);
+    });
+  });
+}
+
+// --- SCREEN 2: TODAY'S DELIVERY ENTRY ---
+function openCustomerDelivery(customerId, dayKey = null) {
+  state.activeCustomerId = customerId;
+  state.activeDay = dayKey || getTodayDayKey();
+  state.activeView = 'entry';
+
+  const cust = state.customers.find(c => c.id === customerId);
+  const order = getCustomerOrder(customerId, true);
+
+  const homeView = document.getElementById('viewDeliveriesHome');
+  const entryView = document.getElementById('viewDeliveriesEntry');
+  const stickyBar = document.getElementById('stickyBottomBar');
+
+  if (homeView) homeView.style.display = 'none';
+  if (entryView) entryView.style.display = 'block';
+  if (stickyBar) stickyBar.style.display = 'none';
+
+  const titleEl = document.getElementById('entryCustomerTitle');
+  if (titleEl) titleEl.textContent = cust?.name || 'Customer';
+
+  updateEntryCustomerBadge(cust);
+  updateEntryActiveDayLabel();
+  checkYesterdayDelivery(order);
+
+  renderInvoiceItemCards();
+  updateDayPillBadges();
+  updateEntrySummary();
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function returnToDeliveriesHome() {
+  state.activeView = 'home';
+  const homeView = document.getElementById('viewDeliveriesHome');
+  const entryView = document.getElementById('viewDeliveriesEntry');
+  const stickyBar = document.getElementById('stickyBottomBar');
+
+  if (entryView) entryView.style.display = 'none';
+  if (homeView) homeView.style.display = 'block';
+  if (stickyBar && state.activeTab === 'invoice') stickyBar.style.display = 'block';
+
+  renderDeliveriesHome();
+}
+
+function updateEntryCustomerBadge(cust) {
+  const badge = document.getElementById('entryCustomerBadge');
+  if (!badge) return;
+  if (!cust) {
+    badge.style.display = 'none';
+    return;
+  }
+  badge.style.display = 'block';
+  const emailText = cust.email ? `✉️ ${cust.email}` : `<span style="color:#dc2626; font-weight:700;">⚠️ No email address (cannot one-tap send)</span>`;
+  const addrText = cust.address ? ` · 📍 ${cust.address}` : '';
+  badge.innerHTML = `<div>${emailText}${addrText}</div>`;
+}
+
+function updateEntryActiveDayLabel() {
+  const labelEl = document.getElementById('entryActiveDayLabel');
+  if (!labelEl) return;
+  const isToday = state.activeDay === getTodayDayKey();
+  const dayName = DAY_FULL_NAMES[state.activeDay];
+  labelEl.textContent = isToday ? `Today: ${dayName}` : `${dayName}`;
+}
+
+function checkYesterdayDelivery(order) {
+  const btn = document.getElementById('btnSameAsYesterday');
+  const summaryEl = document.getElementById('yesterdayQtySummary');
+  if (!btn || !order) return;
+
+  const yesterdayKey = getYesterdayDayKey(state.activeDay);
+  const totals = calculateOrderTotals(order);
+  const yesterdayUnits = totals.dayTotals[yesterdayKey] || 0;
+
+  if (yesterdayUnits > 0) {
+    btn.style.display = 'flex';
+    if (summaryEl) summaryEl.textContent = `${DAY_LABELS[yesterdayKey]}: ${yesterdayUnits} pcs`;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function copyYesterdayDelivery() {
+  if (!state.activeCustomerId) return;
+  const order = getCustomerOrder(state.activeCustomerId, true);
+  const yesterdayKey = getYesterdayDayKey(state.activeDay);
+
+  order.quantities = order.quantities || {};
+  let copiedCount = 0;
+  state.items.forEach(item => {
+    order.quantities[item.id] = order.quantities[item.id] || {};
+    const yQty = parseInt(order.quantities[item.id][yesterdayKey] || 0, 10);
+    order.quantities[item.id][state.activeDay] = yQty;
+    copiedCount += yQty;
+  });
+
+  renderInvoiceItemCards();
+  updateDayPillBadges();
+  updateEntrySummary();
+  scheduleAutoSave();
+  showToast(`Copied ${DAY_LABELS[yesterdayKey]}'s delivery (${copiedCount} pcs) ✓`, 'success');
+}
+
+// --- CLOUD AUTO-SAVE ---
+async function saveActiveOrder(immediate = false) {
+  if (state.saveTimeoutId) {
+    clearTimeout(state.saveTimeoutId);
+    state.saveTimeoutId = null;
+  }
+
+  if (!state.activeCustomerId) return;
+  const order = getCustomerOrder(state.activeCustomerId);
+  if (!order) return;
+
+  const totals = calculateOrderTotals(order);
+  order.grandTotal = totals.grandTotal;
+  order.items = totals.lineItems;
+  order.updatedAt = new Date().toISOString();
+
+  const indicator = document.getElementById('orderSaveIndicator');
+  if (indicator) {
+    indicator.textContent = 'Saving...';
+    indicator.className = 'save-status-pill saving';
+  }
+
+  state.isSaving = true;
+  try {
+    const res = await Api.saveOrder(order);
+    if (res.order) {
+      Object.assign(order, res.order);
+      const idx = state.orders.findIndex(o => o.id === res.order.id || (o.customerId === res.order.customerId && o.weekEnding === res.order.weekEnding));
+      if (idx !== -1) {
+        state.orders[idx] = res.order;
+      } else {
+        state.orders.push(res.order);
+      }
+    }
+    state.isDirty = false;
+    if (indicator) {
+      indicator.textContent = 'Saved ✓';
+      indicator.className = 'save-status-pill saved';
+    }
+  } catch (err) {
+    console.warn('Auto-save error:', err);
+    if (indicator) {
+      indicator.textContent = 'Offline (cached)';
+      indicator.className = 'save-status-pill unsaved';
+    }
+  } finally {
+    state.isSaving = false;
+  }
+}
+
+function scheduleAutoSave() {
+  state.isDirty = true;
+  const indicator = document.getElementById('orderSaveIndicator');
+  if (indicator) {
+    indicator.textContent = 'Saving...';
+    indicator.className = 'save-status-pill saving';
+  }
+
+  if (state.saveTimeoutId) clearTimeout(state.saveTimeoutId);
+  state.saveTimeoutId = setTimeout(() => {
+    saveActiveOrder(false);
+  }, 500);
 }
 
 // --- DAY SELECTOR PILLS ---
@@ -212,17 +661,24 @@ function initDayPills() {
       p.classList.toggle('active', p.dataset.day === day);
     });
 
+    updateEntryActiveDayLabel();
+    const order = getCustomerOrder(state.activeCustomerId);
+    checkYesterdayDelivery(order);
     renderInvoiceItemCards();
+    updateEntrySummary();
   });
 }
 
 function updateDayPillBadges() {
+  const order = getCustomerOrder(state.activeCustomerId);
   DAYS.forEach(day => {
     let dayTotalUnits = 0;
-    state.items.forEach(item => {
-      const itemQtys = state.draft.quantities[item.id] || {};
-      dayTotalUnits += parseInt(itemQtys[day] || 0, 10);
-    });
+    if (order && order.quantities) {
+      (state.items || []).forEach(item => {
+        const itemQtys = order.quantities[item.id] || {};
+        dayTotalUnits += parseInt(itemQtys[day] || 0, 10);
+      });
+    }
     const badge = document.querySelector(`.day-pill[data-day="${day}"] .day-qty-count`);
     if (badge) {
       badge.textContent = dayTotalUnits > 0 ? `${dayTotalUnits}` : '—';
@@ -230,70 +686,24 @@ function updateDayPillBadges() {
   });
 }
 
-// --- INVOICE SCREEN: CUSTOMER SELECT & ITEM CARDS ---
-function renderCustomerSelect() {
-  const select = document.getElementById('customerSelect');
-  if (!select) return;
-
-  select.innerHTML = state.customers.map(c => `
-    <option value="${c.id}" ${c.id === state.draft.customerId ? 'selected' : ''}>
-      ${c.name}
-    </option>
-  `).join('');
-
-  if (!state.draft.customerId && state.customers.length > 0) {
-    state.draft.customerId = state.customers[0].id;
-  }
-
-  select.addEventListener('change', () => {
-    state.draft.customerId = select.value;
-    saveDraft();
-    updateCustomerBadge();
-  });
-
-  updateCustomerBadge();
-
-  // Week ending input listener
-  const dateInput = document.getElementById('weekEndingInput');
-  if (dateInput) {
-    dateInput.addEventListener('change', () => {
-      state.draft.weekEnding = dateInput.value;
-      saveDraft();
-    });
-  }
-}
-
-function updateCustomerBadge() {
-  const badge = document.getElementById('customerDetailsBadge');
-  if (!badge) return;
-  const current = state.customers.find(c => c.id === state.draft.customerId);
-  if (!current) {
-    badge.style.display = 'none';
-    return;
-  }
-  badge.style.display = 'block';
-  const emailText = current.email ? `✉️ ${current.email}` : `<span style="color:#dc2626; font-weight:600;">⚠️ No email address (cannot one-tap send)</span>`;
-  const addrText = current.address ? `📍 ${current.address}` : '';
-  badge.innerHTML = `<div>${emailText}</div>${addrText ? `<div>${addrText}</div>` : ''}`;
-}
-
+// --- ITEM CARDS RENDERING (TODAY'S SCREEN) ---
 function renderInvoiceItemCards() {
   const container = document.getElementById('invoiceItemsContainer');
   if (!container) return;
 
   const currentDay = state.activeDay;
+  const order = getCustomerOrder(state.activeCustomerId, true);
 
-  if (state.items.length === 0) {
+  if (!state.items || state.items.length === 0) {
     container.innerHTML = `<div class="card" style="text-align:center; color: var(--text-muted); padding:30px;">No items configured yet.</div>`;
     return;
   }
 
   container.innerHTML = state.items.map(item => {
-    const itemQtys = state.draft.quantities[item.id] || {};
+    const itemQtys = order.quantities[item.id] || {};
     const dayQty = parseInt(itemQtys[currentDay] || 0, 10);
     const dayTotal = (dayQty * item.price).toFixed(2);
 
-    // Calculate weekly sum for this item
     const weekTotalUnits = DAYS.reduce((sum, d) => sum + parseInt(itemQtys[d] || 0, 10), 0);
     const weekTotalPrice = (weekTotalUnits * item.price).toFixed(2);
 
@@ -326,26 +736,22 @@ function renderInvoiceItemCards() {
     `;
   }).join('');
 
-  // Attach Stepper Listeners
   container.querySelectorAll('.btn-minus').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = btn.dataset.id;
-      adjustItemQty(id, -1);
+      adjustItemQty(btn.dataset.id, -1);
     });
   });
 
   container.querySelectorAll('.btn-plus').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = btn.dataset.id;
-      adjustItemQty(id, 1);
+      adjustItemQty(btn.dataset.id, 1);
     });
   });
 
   container.querySelectorAll('.qty-input').forEach(input => {
     input.addEventListener('input', () => {
-      const id = input.dataset.id;
       const val = Math.max(0, parseInt(input.value, 10) || 0);
-      setItemQty(id, val);
+      setItemQty(input.dataset.id, val);
     });
   });
 
@@ -353,31 +759,35 @@ function renderInvoiceItemCards() {
 }
 
 function adjustItemQty(itemId, delta) {
-  state.draft.quantities[itemId] = state.draft.quantities[itemId] || {};
-  const current = parseInt(state.draft.quantities[itemId][state.activeDay] || 0, 10);
+  const order = getCustomerOrder(state.activeCustomerId, true);
+  order.quantities = order.quantities || {};
+  order.quantities[itemId] = order.quantities[itemId] || {};
+  const current = parseInt(order.quantities[itemId][state.activeDay] || 0, 10);
   const updated = Math.max(0, current + delta);
-  state.draft.quantities[itemId][state.activeDay] = updated;
+  order.quantities[itemId][state.activeDay] = updated;
 
-  saveDraft();
   renderInvoiceItemCards();
-  updateGrandTotal();
+  updateDayPillBadges();
+  updateEntrySummary();
+  scheduleAutoSave();
 }
 
 function setItemQty(itemId, value) {
-  state.draft.quantities[itemId] = state.draft.quantities[itemId] || {};
-  state.draft.quantities[itemId][state.activeDay] = value;
+  const order = getCustomerOrder(state.activeCustomerId, true);
+  order.quantities = order.quantities || {};
+  order.quantities[itemId] = order.quantities[itemId] || {};
+  order.quantities[itemId][state.activeDay] = value;
 
-  saveDraft();
-  updateGrandTotal();
+  updateEntrySummary();
   updateDayPillBadges();
+  scheduleAutoSave();
 
-  // Update card subtotal display directly without resetting focus
   const card = document.querySelector(`.item-entry-card[data-item-id="${itemId}"]`);
   if (card) {
     const item = state.items.find(i => i.id === itemId);
     if (item) {
       const dayTotal = (value * item.price).toFixed(2);
-      const weekUnits = DAYS.reduce((sum, d) => sum + parseInt(state.draft.quantities[itemId][d] || 0, 10), 0);
+      const weekUnits = DAYS.reduce((sum, d) => sum + parseInt(order.quantities[itemId][d] || 0, 10), 0);
       const weekPrice = (weekUnits * item.price).toFixed(2);
       card.querySelector('.item-day-total').textContent = `£${dayTotal}`;
       card.querySelector('.item-week-summary').textContent = `Week: ${weekUnits} pcs (£${weekPrice})`;
@@ -385,115 +795,406 @@ function setItemQty(itemId, value) {
   }
 }
 
-function calculateCurrentInvoiceData() {
-  const customer = state.customers.find(c => c.id === state.draft.customerId) || {
-    name: 'Customer',
-    email: '',
-    address: ''
-  };
+function updateEntrySummary() {
+  const order = getCustomerOrder(state.activeCustomerId);
+  const totals = calculateOrderTotals(order);
+  const dayPrice = totals.dayTotalPrices[state.activeDay] || 0;
 
-  let grandTotal = 0;
-  const lineItems = state.items.map(item => {
-    const q = state.draft.quantities[item.id] || {};
-    const mon = parseInt(q.mon || 0, 10);
-    const tues = parseInt(q.tues || 0, 10);
-    const wed = parseInt(q.wed || 0, 10);
-    const thu = parseInt(q.thu || 0, 10);
-    const fri = parseInt(q.fri || 0, 10);
-    const sat = parseInt(q.sat || 0, 10);
-    const sun = parseInt(q.sun || 0, 10);
-
-    const total = mon + tues + wed + thu + fri + sat + sun;
-    const itemTotal = total * item.price;
-    grandTotal += itemTotal;
-
-    return {
-      itemId: item.id,
-      name: item.name,
-      cost: item.price,
-      mon,
-      tues,
-      wed,
-      thu,
-      fri,
-      sat,
-      sun,
-      total,
-      itemTotal
-    };
-  });
-
-  return {
-    settings: state.settings,
-    company: customer.name,
-    customerEmail: customer.email || '',
-    customerCcEmail: customer.ccEmail || '',
-    customerAddress: customer.address || '',
-    weekEnding: state.draft.weekEnding,
-    weekEndingFormatted: formatDateDisplay(state.draft.weekEnding),
-    items: lineItems,
-    grandTotal: parseFloat(grandTotal.toFixed(2))
-  };
+  const dayTotalEl = document.getElementById('entryDayTotal');
+  const weekTotalEl = document.getElementById('entryWeekTotal');
+  if (dayTotalEl) dayTotalEl.textContent = `£${dayPrice.toFixed(2)}`;
+  if (weekTotalEl) weekTotalEl.textContent = `£${totals.grandTotal.toFixed(2)}`;
 }
 
-function updateGrandTotal() {
-  const data = calculateCurrentInvoiceData();
-  const totalDisplay = document.getElementById('grandTotalDisplay');
-  if (totalDisplay) {
-    totalDisplay.textContent = `£${data.grandTotal.toFixed(2)}`;
+// --- REVIEW & SEND END-OF-WEEK MODAL ---
+function openReviewSendModal() {
+  const modal = document.getElementById('reviewSendModal');
+  const subTitle = document.getElementById('reviewSendModalWeekSub');
+  const body = document.getElementById('reviewSendModalBody');
+  const totalDisplay = document.getElementById('reviewSelectedTotalDisplay');
+  const progressBox = document.getElementById('reviewSendProgressBox');
+
+  if (!modal || !body) return;
+  if (progressBox) progressBox.style.display = 'none';
+
+  if (subTitle) {
+    subTitle.textContent = `Week ending ${formatDateDisplay(state.activeWeekEnding)} (${getWeekRangeText(state.activeWeekEnding)})`;
+  }
+
+  const openOrdersWithTotals = [];
+  (state.customers || []).filter(c => !c.archived).forEach(cust => {
+    const order = getCustomerOrder(cust.id);
+    const totals = calculateOrderTotals(order);
+    if (totals.grandTotal > 0) {
+      openOrdersWithTotals.push({ cust, order, totals });
+    }
+  });
+
+  if (openOrdersWithTotals.length === 0) {
+    showToast('No customer deliveries recorded for this week yet.', 'info');
+    return;
+  }
+
+  body.innerHTML = openOrdersWithTotals.map(({ cust, order, totals }) => {
+    const hasEmail = Boolean(cust.email);
+    return `
+      <div class="review-send-card" data-order-id="${order.id}">
+        <div style="display:flex; align-items:center; gap:10px; flex:1;">
+          <input type="checkbox" class="review-send-checkbox" data-order-id="${order.id}" checked />
+          <div>
+            <div style="font-weight:700; font-size:15px; color:var(--text);">${cust.name}</div>
+            <div style="font-size:12px; color:var(--text-muted); margin-top:1px;">
+              ${hasEmail ? `✉️ ${cust.email}` : '<span style="color:#dc2626; font-weight:700;">⚠️ No email address</span>'}
+              · ${totals.weekTotalUnits} pcs
+            </div>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:15px; font-weight:800; color:var(--primary-dark);">£${totals.grandTotal.toFixed(2)}</div>
+          <div style="display:flex; gap:6px; margin-top:4px; justify-content:flex-end;">
+            <button type="button" class="btn-table-icon btn-preview-order" data-order-id="${order.id}" title="Preview Invoice">👁️</button>
+            <button type="button" class="btn-table-icon btn-share-order" data-order-id="${order.id}" title="Share via WhatsApp / Mail">📲</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  function updateSelectedTotal() {
+    let selTotal = 0;
+    body.querySelectorAll('.review-send-checkbox:checked').forEach(cb => {
+      const orderId = cb.dataset.orderId;
+      const item = openOrdersWithTotals.find(x => x.order.id === orderId);
+      if (item) selTotal += item.totals.grandTotal;
+    });
+    if (totalDisplay) totalDisplay.textContent = `£${selTotal.toFixed(2)}`;
+  }
+  updateSelectedTotal();
+
+  body.querySelectorAll('.review-send-checkbox').forEach(cb => {
+    cb.addEventListener('change', updateSelectedTotal);
+  });
+
+  body.querySelectorAll('.btn-preview-order').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const orderId = btn.dataset.orderId;
+      const item = openOrdersWithTotals.find(x => x.order.id === orderId);
+      if (item) {
+        showInvoicePreviewModal(item.order);
+      }
+    });
+  });
+
+  body.querySelectorAll('.btn-share-order').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const orderId = btn.dataset.orderId;
+      const item = openOrdersWithTotals.find(x => x.order.id === orderId);
+      if (item) {
+        shareOrderViaPhoneSheet(item.order);
+      }
+    });
+  });
+
+  modal.style.display = 'flex';
+}
+
+async function executeBatchSend() {
+  const modal = document.getElementById('reviewSendModal');
+  const body = document.getElementById('reviewSendModalBody');
+  const progressBox = document.getElementById('reviewSendProgressBox');
+  const progressText = document.getElementById('reviewSendProgressText');
+  const sendBtn = document.getElementById('btnExecuteBatchSend');
+
+  const checkedBoxes = Array.from(body.querySelectorAll('.review-send-checkbox:checked'));
+  if (checkedBoxes.length === 0) {
+    alert('Please select at least one customer to send an invoice.');
+    return;
+  }
+
+  if (!state.settings.hasGmailConfigured) {
+    modal.style.display = 'none';
+    setRoleMode('admin');
+    switchTab('settings');
+    showToast('Please configure your Bakery Gmail & 16-character App Password first.', 'info');
+    return;
+  }
+
+  const missingEmailNames = [];
+  const selectedOrders = [];
+  checkedBoxes.forEach(cb => {
+    const orderId = cb.dataset.orderId;
+    const order = state.orders.find(o => o.id === orderId);
+    if (order) {
+      const cust = state.customers.find(c => c.id === order.customerId);
+      const email = (cust?.email || order.customerEmail || '').trim();
+      if (!email) {
+        missingEmailNames.push(cust?.name || order.company);
+      } else {
+        selectedOrders.push({ order, cust, email });
+      }
+    }
+  });
+
+  if (missingEmailNames.length > 0) {
+    alert(`The following customer(s) have no email address:\n• ${missingEmailNames.join('\n• ')}\n\nPlease add their email addresses before sending, or use 📲 Share.`);
+    if (selectedOrders.length === 0) return;
+  }
+
+  if (!confirm(`Send ${selectedOrders.length} invoice(s) now via Gmail directly to customer emails?`)) {
+    return;
+  }
+
+  if (progressBox) progressBox.style.display = 'block';
+  if (sendBtn) sendBtn.disabled = true;
+
+  let successCount = 0;
+  for (let i = 0; i < selectedOrders.length; i++) {
+    const { order, cust, email } = selectedOrders[i];
+    if (progressText) {
+      progressText.textContent = `Sending ${i + 1} of ${selectedOrders.length}: ${cust?.name || order.company}...`;
+    }
+
+    try {
+      const invoiceData = calculateCurrentInvoiceData(order);
+      const nextNo = state.settings.nextInvoiceNo || 1001;
+      invoiceData.invoiceNo = nextNo;
+      const pdfBase64 = getInvoicePdfBase64(invoiceData);
+
+      const res = await Api.sendOrder(order.id, {
+        mode: 'gmail',
+        toEmail: email,
+        ccEmail: cust?.ccEmail || order.customerCcEmail,
+        company: cust?.name || order.company,
+        customerAddress: cust?.address || order.customerAddress,
+        grandTotal: invoiceData.grandTotal,
+        weekEndingFormatted: invoiceData.weekEndingFormatted,
+        items: invoiceData.items,
+        pdfBase64
+      });
+
+      const invNo = res.invoiceNo || nextNo;
+      state.settings.nextInvoiceNo = invNo + 1;
+
+      const cardEl = body.querySelector(`.review-send-card[data-order-id="${order.id}"]`);
+      if (cardEl) {
+        cardEl.style.background = '#f0fdf4';
+        cardEl.innerHTML = `
+          <div style="color:#065f46; font-weight:700;">✅ ${cust?.name || order.company}</div>
+          <div style="color:#065f46; font-size:12px;">Invoice #${invNo} emailed to ${email}</div>
+        `;
+      }
+
+      state.orders = state.orders.filter(o => o.id !== order.id);
+      successCount++;
+    } catch (err) {
+      console.error('Batch send error for order:', order.id, err);
+      const cardEl = body.querySelector(`.review-send-card[data-order-id="${order.id}"]`);
+      if (cardEl) {
+        cardEl.style.background = '#fff1f2';
+        cardEl.innerHTML = `
+          <div style="color:#be123c; font-weight:700;">❌ ${cust?.name || order.company}</div>
+          <div style="color:#be123c; font-size:12px;">Failed: ${err.message}</div>
+        `;
+      }
+    }
+  }
+
+  if (progressText) {
+    progressText.textContent = `✅ Complete! ${successCount} invoice(s) sent.`;
+  }
+  if (sendBtn) sendBtn.disabled = false;
+
+  showToast(`✅ Successfully sent ${successCount} invoice(s)!`, 'success');
+  renderDeliveriesHome();
+
+  setTimeout(() => {
+    modal.style.display = 'none';
+  }, 1800);
+}
+
+// --- FULL WEEK BREAKDOWN MODAL ---
+function showWeekBreakdownModal() {
+  const modal = document.getElementById('weekBreakdownModal');
+  const body = document.getElementById('weekBreakdownModalBody');
+  const title = document.getElementById('breakdownModalTitle');
+  const sub = document.getElementById('breakdownModalSub');
+  const dlBtn = document.getElementById('btnBreakdownDownloadPdf');
+
+  if (!modal || !body) return;
+  const order = getCustomerOrder(state.activeCustomerId);
+  if (!order) return;
+
+  const data = calculateCurrentInvoiceData(order);
+  if (title) title.textContent = `7-Day Breakdown: ${data.company}`;
+  if (sub) sub.textContent = `Week Ending: ${data.weekEndingFormatted} · Total: £${data.grandTotal.toFixed(2)}`;
+
+  const tableRows = data.items.map(i => `
+    <tr>
+      <td>${i.name}</td>
+      <td>${i.mon || ''}</td>
+      <td>${i.tues || ''}</td>
+      <td>${i.wed || ''}</td>
+      <td>${i.thu || ''}</td>
+      <td>${i.fri || ''}</td>
+      <td>${i.sat || ''}</td>
+      <td>${i.sun || ''}</td>
+      <td><strong>${i.total}</strong></td>
+      <td>£${i.cost.toFixed(2)}</td>
+      <td><strong>£${i.itemTotal.toFixed(2)}</strong></td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="preview-invoice-container">
+      <table class="preview-table">
+        <thead>
+          <tr>
+            <th>Item</th><th>M</th><th>Tu</th><th>W</th><th>Th</th><th>F</th><th>Sa</th><th>Su</th>
+            <th>Qty</th><th>Cost</th><th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+          <tr style="background: #f8fafc;">
+            <td colspan="10" style="text-align:right; font-weight:bold;">Grand Total:</td>
+            <td style="font-weight:bold; color: #92400e;">£${data.grandTotal.toFixed(2)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  if (dlBtn) {
+    dlBtn.onclick = () => {
+      data.invoiceNo = 'DRAFT';
+      downloadInvoicePdf(data);
+    };
+  }
+
+  modal.style.display = 'flex';
+}
+
+// --- PHONE SHARE SHEET (WHATSAPP / MAIL) ---
+async function shareOrderViaPhoneSheet(targetOrder = null) {
+  const order = targetOrder || getCustomerOrder(state.activeCustomerId);
+  if (!order) return;
+  const data = calculateCurrentInvoiceData(order);
+  const nextNo = state.settings.nextInvoiceNo || 1001;
+  data.invoiceNo = nextNo;
+
+  const pdfFile = getInvoicePdfFile(data);
+  const pdfBase64 = getInvoicePdfBase64(data);
+  data.pdfBase64 = pdfBase64;
+
+  const subject = `Invoice #${nextNo} – Happyland Bakery – Week ending ${data.weekEndingFormatted}`;
+  const bodyText = `Dear ${data.company},
+
+Please find attached your invoice #${nextNo} for the week ending ${data.weekEndingFormatted}.
+
+Total due: £${data.grandTotal.toFixed(2)}
+
+Payment Details:
+Bank: ${state.settings.businessName || 'Happyland Bakery Ltd'}
+Account Number: ${state.settings.accountNumber || '30623245'}
+Sort Code: ${state.settings.sortCode || '20-92-60'}
+
+Thank you for your business,
+${state.settings.businessName || 'Happyland Bakery Ltd'}`;
+
+  try {
+    if (data.customerEmail && navigator.clipboard) {
+      navigator.clipboard.writeText(data.customerEmail).catch(() => {});
+    }
+
+    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+      await navigator.share({
+        files: [pdfFile],
+        title: subject,
+        text: bodyText
+      });
+    } else {
+      downloadInvoicePdf(data);
+      const mailtoUrl = `mailto:${encodeURIComponent(data.customerEmail || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
+      window.location.href = mailtoUrl;
+    }
+
+    const res = await Api.sendOrder(order.id, {
+      mode: 'share',
+      toEmail: data.customerEmail,
+      company: data.company,
+      grandTotal: data.grandTotal,
+      weekEndingFormatted: data.weekEndingFormatted,
+      items: data.items,
+      pdfBase64
+    });
+
+    const invNo = res.invoiceNo || nextNo;
+    state.settings.nextInvoiceNo = invNo + 1;
+    state.orders = state.orders.filter(o => o.id !== order.id);
+
+    showToast(`Invoice #${invNo} shared & saved!`, 'success');
+    returnToDeliveriesHome();
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      showToast(`Share error: ${err.message}`, 'danger');
+    }
   }
 }
 
-// --- ACTION BUTTONS: PREVIEW, PDF, SHARE, 1-TAP GMAIL SEND ---
+// --- ACTION BUTTONS INITIALIZER ---
 function initActionButtons() {
-  // Preview
-  document.getElementById('btnPreview')?.addEventListener('click', () => {
-    showInvoicePreviewModal();
+  document.getElementById('btnBackToHome')?.addEventListener('click', () => {
+    saveActiveOrder(true);
+    returnToDeliveriesHome();
   });
 
-  // Download PDF
-  document.getElementById('btnDownloadPdf')?.addEventListener('click', () => {
-    const data = calculateCurrentInvoiceData();
-    data.invoiceNo = state.settings.nextInvoiceNo || 1001;
-    downloadInvoicePdf(data);
+  document.getElementById('btnDoneSaveToday')?.addEventListener('click', async () => {
+    await saveActiveOrder(true);
+    const cust = state.customers.find(c => c.id === state.activeCustomerId);
+    showToast(`✅ Saved ${cust?.name || 'delivery'} – ${DAY_LABELS[state.activeDay]}!`, 'success');
+    returnToDeliveriesHome();
   });
 
-  // Phone Share Sheet (WhatsApp / Mail backup — runs immediately on tap gesture!)
-  document.getElementById('btnShareSheet')?.addEventListener('click', () => {
-    shareViaPhoneSheet();
+  document.getElementById('btnSameAsYesterday')?.addEventListener('click', () => {
+    copyYesterdayDelivery();
   });
 
-  // 1-Tap Automatic Send via Bakery Gmail
-  document.getElementById('btnOneTapSend')?.addEventListener('click', () => {
-    startOneTapSendFlow();
+  document.getElementById('btnToggleDayPills')?.addEventListener('click', () => {
+    const wrapper = document.getElementById('dayPillsWrapper');
+    const btn = document.getElementById('btnToggleDayPills');
+    if (!wrapper) return;
+    const isHidden = wrapper.style.display === 'none' || !wrapper.style.display;
+    wrapper.style.display = isHidden ? 'block' : 'none';
+    if (btn) btn.textContent = isHidden ? 'Hide Day ▴' : 'Change Day ▾';
   });
 
-  // Send Now button on Undo Banner
-  document.getElementById('btnSendNow')?.addEventListener('click', async () => {
-    if (state.sendTimeoutId) {
-      clearTimeout(state.sendTimeoutId);
-      state.sendTimeoutId = null;
-    }
-    const toast = document.getElementById('toastUndoContainer');
-    if (toast) toast.style.display = 'none';
-    const data = state.pendingSendData || calculateCurrentInvoiceData();
-    state.pendingSendData = null;
-    await executeGmailSend(data);
+  document.getElementById('btnViewFullWeek')?.addEventListener('click', () => {
+    showWeekBreakdownModal();
   });
 
-  // Undo button on Toast
-  document.getElementById('btnUndoSend')?.addEventListener('click', () => {
-    cancelOneTapSend();
+  document.getElementById('btnShareSingleCustomer')?.addEventListener('click', () => {
+    shareOrderViaPhoneSheet();
   });
 
-  // Add customer quick button from invoice header
-  document.getElementById('btnQuickAddCustomer')?.addEventListener('click', () => {
-    openCustomerModal();
+  document.getElementById('btnBannerReviewSend')?.addEventListener('click', () => {
+    openReviewSendModal();
+  });
+
+  document.getElementById('btnStickyReviewSend')?.addEventListener('click', () => {
+    openReviewSendModal();
+  });
+
+  document.getElementById('btnExecuteBatchSend')?.addEventListener('click', () => {
+    executeBatchSend();
+  });
+
+  document.getElementById('homeCustomerSearchInput')?.addEventListener('input', () => {
+    renderDeliveriesHome();
   });
 }
 
-function showInvoicePreviewModal() {
-  const data = calculateCurrentInvoiceData();
+function showInvoicePreviewModal(targetOrder = null) {
+  const data = calculateCurrentInvoiceData(targetOrder);
   const modal = document.getElementById('previewModal');
   const body = document.getElementById('previewModalBody');
   if (!modal || !body) return;
@@ -547,181 +1248,6 @@ function showInvoicePreviewModal() {
   modal.style.display = 'flex';
 }
 
-// --- 1-TAP AUTOMATIC GMAIL SEND (WITH 5-SECOND UNDO / SEND NOW) ---
-async function startOneTapSendFlow() {
-  const data = calculateCurrentInvoiceData();
-
-  if (!data.customerEmail) {
-    alert(`Please add an email address for "${data.company}" first.\nOpening Customers tab...`);
-    switchTab('customers');
-    const cust = state.customers.find(c => c.id === state.draft.customerId);
-    if (cust) openCustomerModal(cust);
-    return;
-  }
-
-  // Check if Gmail is configured
-  if (!state.settings.hasGmailConfigured) {
-    setRoleMode('admin');
-    switchTab('settings');
-    showToast('Please enter your Bakery Gmail & 16-character App Password once below.', 'info');
-    setTimeout(() => {
-      document.getElementById('setGmailUser')?.focus();
-    }, 150);
-    return;
-  }
-
-  state.pendingSendData = data;
-
-  // Show 5-second Undo / Send Now Banner
-  const toast = document.getElementById('toastUndoContainer');
-  const toastText = document.getElementById('toastUndoText');
-  if (!toast || !toastText) {
-    await executeGmailSend(data);
-    return;
-  }
-
-  toastText.innerHTML = `Sending to <strong>${data.customerEmail}</strong> in 5s...`;
-  toast.style.display = 'block';
-
-  const bar = toast.querySelector('.toast-progress-bar');
-  if (bar) {
-    bar.style.animation = 'none';
-    bar.offsetHeight; // trigger reflow
-    bar.style.animation = 'countdown 5s linear forwards';
-  }
-
-  if (state.sendTimeoutId) clearTimeout(state.sendTimeoutId);
-
-  state.sendTimeoutId = setTimeout(async () => {
-    toast.style.display = 'none';
-    state.sendTimeoutId = null;
-    state.pendingSendData = null;
-    await executeGmailSend(data);
-  }, 5000);
-}
-
-function cancelOneTapSend() {
-  if (state.sendTimeoutId) {
-    clearTimeout(state.sendTimeoutId);
-    state.sendTimeoutId = null;
-  }
-  state.pendingSendData = null;
-  const toast = document.getElementById('toastUndoContainer');
-  if (toast) toast.style.display = 'none';
-  showToast('Send cancelled.', 'info');
-}
-
-async function executeGmailSend(data) {
-  showToast(`Sending Invoice to ${data.customerEmail} via Gmail...`, 'info');
-
-  try {
-    const nextNo = state.settings.nextInvoiceNo || 1001;
-    data.invoiceNo = nextNo;
-    const pdfBase64 = getInvoicePdfBase64(data);
-    data.pdfBase64 = pdfBase64;
-
-    // 1. Reserve sequential invoice number & save invoice record
-    const createRes = await Api.createInvoice(data);
-    const invoiceNo = createRes.invoiceNo || nextNo;
-    data.invoiceNo = invoiceNo;
-
-    // Re-generate PDF with confirmed invoice number if different
-    const finalPdfBase64 = invoiceNo === nextNo ? pdfBase64 : getInvoicePdfBase64(data);
-
-    // 2. Send directly via Bakery Gmail with PDF attached & To: prefilled
-    const sendRes = await Api.sendInvoiceEmail(invoiceNo, {
-      mode: 'gmail',
-      toEmail: data.customerEmail,
-      ccEmail: data.customerCcEmail,
-      pdfBase64: finalPdfBase64,
-      company: data.company,
-      grandTotal: data.grandTotal,
-      weekEndingFormatted: data.weekEndingFormatted
-    });
-
-    // 3. Update next invoice number locally
-    state.settings.nextInvoiceNo = invoiceNo + 1;
-
-    // 4. Clear draft quantities for next invoice
-    state.draft.quantities = {};
-    saveDraft();
-    renderInvoiceItemCards();
-    updateGrandTotal();
-
-    showToast(sendRes.message || `✅ Invoice #${invoiceNo} emailed to ${data.customerEmail}!`, 'success');
-  } catch (err) {
-    console.error('Gmail send error:', err);
-    showToast(`Send failed: ${err.message}`, 'danger');
-  }
-}
-
-// --- BACKUP OPTION: PHONE SHARE SHEET (WHATSAPP / MAIL) ---
-// Runs synchronously on the tap gesture so iOS Safari never blocks navigator.share or clipboard!
-async function shareViaPhoneSheet() {
-  const data = calculateCurrentInvoiceData();
-  const nextNo = state.settings.nextInvoiceNo || 1001;
-  data.invoiceNo = nextNo;
-
-  const pdfFile = getInvoicePdfFile(data);
-  const pdfBase64 = getInvoicePdfBase64(data);
-  data.pdfBase64 = pdfBase64;
-
-  const subject = `Invoice #${nextNo} – Happyland Bakery – Week ending ${data.weekEndingFormatted}`;
-  const bodyText = `Dear ${data.company},
-
-Please find attached your invoice #${nextNo} for the week ending ${data.weekEndingFormatted}.
-
-Total due: £${data.grandTotal.toFixed(2)}
-
-Payment Details:
-Bank: ${state.settings.businessName || 'Happyland Bakery Ltd'}
-Account Number: ${state.settings.accountNumber || '30623245'}
-Sort Code: ${state.settings.sortCode || '20-92-60'}
-
-Thank you for your business,
-${state.settings.businessName || 'Happyland Bakery Ltd'}`;
-
-  try {
-    // Copy email to clipboard immediately on the tap gesture
-    if (data.customerEmail && navigator.clipboard) {
-      navigator.clipboard.writeText(data.customerEmail).catch(() => {});
-    }
-
-    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-      // Open share sheet immediately while user gesture token is active
-      await navigator.share({
-        files: [pdfFile],
-        title: subject,
-        text: bodyText
-      });
-    } else {
-      downloadInvoicePdf(data);
-      const mailtoUrl = `mailto:${encodeURIComponent(data.customerEmail || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
-      window.location.href = mailtoUrl;
-    }
-
-    // Save to history in background after share sheet completes
-    const createRes = await Api.createInvoice(data);
-    const invoiceNo = createRes.invoiceNo || nextNo;
-    await Api.sendInvoiceEmail(invoiceNo, {
-      mode: 'share',
-      toEmail: data.customerEmail,
-      pdfBase64
-    });
-
-    state.settings.nextInvoiceNo = invoiceNo + 1;
-    state.draft.quantities = {};
-    saveDraft();
-    renderInvoiceItemCards();
-    updateGrandTotal();
-    showToast(`Invoice #${invoiceNo} shared & saved!`, 'success');
-  } catch (err) {
-    if (err.name !== 'AbortError') {
-      showToast(`Share error: ${err.message}`, 'danger');
-    }
-  }
-}
-
 // --- CUSTOMERS MANAGEMENT SCREEN ---
 function renderCustomersTab() {
   const container = document.getElementById('customersListContainer');
@@ -772,7 +1298,7 @@ function renderCustomersTab() {
           await Api.deleteCustomer(cust.id);
           state.customers = state.customers.filter(c => c.id !== cust.id);
           renderCustomersTab();
-          renderCustomerSelect();
+          renderDeliveriesHome();
           showToast(`Customer "${cust.name}" removed`, 'success');
         } catch (e) {
           showToast(e.message, 'danger');
@@ -1139,11 +1665,9 @@ function initModals() {
         if (idx !== -1) state.customers[idx] = savedCust;
       } else {
         state.customers.push(savedCust);
-        state.draft.customerId = savedCust.id;
       }
 
-      saveDraft();
-      renderCustomerSelect();
+      renderDeliveriesHome();
       renderCustomersTab();
       document.getElementById('customerModal').style.display = 'none';
       showToast('Customer saved successfully', 'success');

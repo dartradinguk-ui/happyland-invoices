@@ -86,11 +86,15 @@ let localStoreCache = null;
 const LOCAL_DATA_FILE = path.join(process.cwd(), '.data', 'store.json');
 
 function getLocalData() {
-  if (localStoreCache) return localStoreCache;
+  if (localStoreCache) {
+    if (!localStoreCache.orders) localStoreCache.orders = [];
+    return localStoreCache;
+  }
   try {
     if (fs.existsSync(LOCAL_DATA_FILE)) {
       const raw = fs.readFileSync(LOCAL_DATA_FILE, 'utf8');
       localStoreCache = JSON.parse(raw);
+      if (!localStoreCache.orders) localStoreCache.orders = [];
       return localStoreCache;
     }
   } catch (e) {
@@ -100,6 +104,7 @@ function getLocalData() {
     settings: { ...DEFAULT_SETTINGS },
     customers: [...DEFAULT_CUSTOMERS],
     items: [...DEFAULT_ITEMS],
+    orders: [],
     invoices: []
   };
   return localStoreCache;
@@ -121,13 +126,17 @@ async function getStoreData() {
     // Try Netlify Blobs first
     const store = getStore({ name: 'happyland', consistency: 'strong' });
     const remoteData = await store.get('database', { type: 'json' });
-    if (remoteData) return { store, data: remoteData, isRemote: true };
+    if (remoteData) {
+      if (!remoteData.orders) remoteData.orders = [];
+      return { store, data: remoteData, isRemote: true };
+    }
     
     // First time initializing remote store
     const initial = {
       settings: { ...DEFAULT_SETTINGS },
       customers: [...DEFAULT_CUSTOMERS],
       items: [...DEFAULT_ITEMS],
+      orders: [],
       invoices: []
     };
     await store.setJSON('database', initial);
@@ -205,6 +214,7 @@ export default async (req, context) => {
 
   const storeWrapper = await getStoreData();
   const db = storeWrapper.data;
+  db.orders = db.orders || [];
 
   // 2. BOOTSTRAP (fetches everything needed for app startup)
   if (pathname === '/bootstrap' && req.method === 'GET') {
@@ -213,6 +223,7 @@ export default async (req, context) => {
       settings: sanitizeSettingsForClient(db.settings),
       customers: (db.customers || []).filter(c => !c.archived),
       items: (db.items || []).filter(i => !i.archived).sort((a, b) => (a.order || 0) - (b.order || 0)),
+      orders: (db.orders || []).filter(o => o.status === 'open'),
       serverTime: new Date().toISOString()
     });
   }
@@ -443,6 +454,328 @@ export default async (req, context) => {
     }
   }
 
+  // 5.5 WEEKLY CUSTOMER ORDERS
+  if (pathname === '/orders') {
+    if (req.method === 'GET') {
+      const weekEnding = url.searchParams.get('weekEnding');
+      const includeSent = url.searchParams.get('includeSent') === 'true';
+      let list = db.orders || [];
+      if (!includeSent) {
+        list = list.filter(o => o.status === 'open');
+      }
+      if (weekEnding) {
+        list = list.filter(o => o.weekEnding === weekEnding);
+      }
+      return jsonResponse({ orders: list });
+    }
+
+    if (req.method === 'POST') {
+      const body = await req.json().catch(() => ({}));
+      if (!body.customerId) {
+        return jsonResponse({ error: 'customerId is required' }, 400);
+      }
+      const cust = (db.customers || []).find(c => c.id === body.customerId);
+      const weekEnding = (body.weekEnding || '').trim();
+
+      db.orders = db.orders || [];
+      let existingIndex = -1;
+      if (weekEnding) {
+        existingIndex = db.orders.findIndex(o => o.customerId === body.customerId && o.weekEnding === weekEnding && o.status === 'open');
+      }
+
+      const now = new Date().toISOString();
+      if (existingIndex !== -1) {
+        const existing = db.orders[existingIndex];
+        const updated = {
+          ...existing,
+          company: cust?.name || body.company || existing.company || '',
+          customerEmail: cust?.email || body.customerEmail || existing.customerEmail || '',
+          customerCcEmail: cust?.ccEmail || body.customerCcEmail || existing.customerCcEmail || '',
+          customerAddress: cust?.address || body.customerAddress || existing.customerAddress || '',
+          weekEnding: weekEnding || existing.weekEnding,
+          weekEndingFormatted: body.weekEndingFormatted || existing.weekEndingFormatted || '',
+          quantities: body.quantities !== undefined ? body.quantities : existing.quantities || {},
+          grandTotal: body.grandTotal !== undefined ? parseFloat(body.grandTotal) : existing.grandTotal || 0,
+          items: body.items !== undefined ? body.items : existing.items,
+          updatedAt: now
+        };
+        db.orders[existingIndex] = updated;
+        await saveStoreData(storeWrapper, db);
+        return jsonResponse({ success: true, order: updated, isNew: false });
+      }
+
+      const newOrder = {
+        id: 'order_' + body.customerId + '_' + (weekEnding || 'now').replace(/-/g, '') + '_' + Date.now().toString(36),
+        customerId: body.customerId,
+        company: cust?.name || body.company || '',
+        customerEmail: cust?.email || body.customerEmail || '',
+        customerCcEmail: cust?.ccEmail || body.customerCcEmail || '',
+        customerAddress: cust?.address || body.customerAddress || '',
+        weekEnding: weekEnding,
+        weekEndingFormatted: body.weekEndingFormatted || '',
+        status: 'open',
+        quantities: body.quantities || {},
+        grandTotal: parseFloat(body.grandTotal || 0),
+        items: body.items || [],
+        createdAt: now,
+        updatedAt: now
+      };
+      db.orders.push(newOrder);
+      await saveStoreData(storeWrapper, db);
+      return jsonResponse({ success: true, order: newOrder, isNew: true });
+    }
+  }
+
+  // Single Order GET, PUT, DELETE
+  const orderMatch = pathname.match(/^\/orders\/([^\/]+)$/);
+  if (orderMatch) {
+    const orderId = orderMatch[1];
+    db.orders = db.orders || [];
+    const orderIndex = db.orders.findIndex(o => o.id === orderId);
+
+    if (req.method === 'GET') {
+      if (orderIndex === -1) return jsonResponse({ error: 'Order not found' }, 404);
+      return jsonResponse({ order: db.orders[orderIndex] });
+    }
+
+    if (req.method === 'PUT') {
+      const body = await req.json().catch(() => ({}));
+      const existing = orderIndex !== -1 ? db.orders[orderIndex] : null;
+      const customerId = body.customerId || existing?.customerId;
+      const cust = (db.customers || []).find(c => c.id === customerId);
+
+      if (orderIndex === -1) {
+        const newOrder = {
+          id: orderId,
+          customerId: customerId || 'unknown',
+          company: cust?.name || body.company || '',
+          customerEmail: cust?.email || body.customerEmail || '',
+          customerCcEmail: cust?.ccEmail || body.customerCcEmail || '',
+          customerAddress: cust?.address || body.customerAddress || '',
+          weekEnding: (body.weekEnding || '').trim(),
+          weekEndingFormatted: body.weekEndingFormatted || '',
+          status: 'open',
+          quantities: body.quantities || {},
+          grandTotal: body.grandTotal !== undefined ? parseFloat(body.grandTotal) : 0,
+          items: body.items || [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        db.orders.push(newOrder);
+        await saveStoreData(storeWrapper, db);
+        return jsonResponse({ success: true, order: newOrder, isNew: true });
+      }
+
+      const updated = {
+        ...existing,
+        company: cust?.name || body.company || existing.company,
+        customerEmail: cust?.email || body.customerEmail || existing.customerEmail,
+        customerCcEmail: cust?.ccEmail || body.customerCcEmail || existing.customerCcEmail,
+        customerAddress: cust?.address || body.customerAddress || existing.customerAddress,
+        weekEnding: body.weekEnding !== undefined ? body.weekEnding : existing.weekEnding,
+        weekEndingFormatted: body.weekEndingFormatted !== undefined ? body.weekEndingFormatted : existing.weekEndingFormatted,
+        quantities: body.quantities !== undefined ? body.quantities : existing.quantities,
+        grandTotal: body.grandTotal !== undefined ? parseFloat(body.grandTotal) : existing.grandTotal,
+        items: body.items !== undefined ? body.items : existing.items,
+        updatedAt: new Date().toISOString()
+      };
+      db.orders[orderIndex] = updated;
+      await saveStoreData(storeWrapper, db);
+      return jsonResponse({ success: true, order: updated });
+    }
+
+    if (req.method === 'DELETE') {
+      if (orderIndex === -1) return jsonResponse({ error: 'Order not found' }, 404);
+      db.orders.splice(orderIndex, 1);
+      await saveStoreData(storeWrapper, db);
+      return jsonResponse({ success: true, message: 'Order removed' });
+    }
+  }
+
+  // SEND ORDER (FINALIZES ORDER INTO OFFICIAL INVOICE & SENDS)
+  const orderSendMatch = pathname.match(/^\/orders\/([^\/]+)\/send$/);
+  if (orderSendMatch && req.method === 'POST') {
+    const orderId = orderSendMatch[1];
+    db.orders = db.orders || [];
+    const orderIndex = db.orders.findIndex(o => o.id === orderId);
+    if (orderIndex === -1) return jsonResponse({ error: 'Order not found' }, 404);
+
+    const order = db.orders[orderIndex];
+    const body = await req.json().catch(() => ({}));
+    const cust = (db.customers || []).find(c => c.id === order.customerId);
+
+    const company = body.company || cust?.name || order.company || 'Customer';
+    const toEmail = (body.toEmail || cust?.email || order.customerEmail || '').trim();
+    const ccEmail = (body.ccEmail || cust?.ccEmail || order.customerCcEmail || '').trim();
+    const customerAddress = body.customerAddress || cust?.address || order.customerAddress || '';
+    const weekEnding = body.weekEnding || order.weekEnding || '';
+    const weekEndingFormatted = body.weekEndingFormatted || order.weekEndingFormatted || '';
+    const grandTotal = parseFloat(body.grandTotal !== undefined ? body.grandTotal : order.grandTotal || 0);
+    const items = Array.isArray(body.items) ? body.items : (order.items || []);
+    const rawPdfBase64 = body.pdfBase64 || order.pdfBase64;
+    const pdfBase64 = cleanPdfBase64(rawPdfBase64);
+
+    // Sequential atomic counter
+    db.settings = db.settings || { ...DEFAULT_SETTINGS };
+    const nextNo = db.settings.nextInvoiceNo || 1001;
+    db.settings.nextInvoiceNo = nextNo + 1;
+
+    // Mode A: Phone Share Sheet recording only
+    if (body.mode === 'share') {
+      const invoiceRecord = {
+        invoiceNo: nextNo,
+        orderId: order.id,
+        company,
+        customerEmail: toEmail,
+        customerCcEmail: ccEmail,
+        customerAddress,
+        weekEnding,
+        weekEndingFormatted,
+        items,
+        grandTotal,
+        pdfBase64,
+        createdAt: new Date().toISOString(),
+        createdBy: auth.role,
+        sentAt: new Date().toISOString(),
+        sentStatus: 'shared',
+        sentTo: toEmail
+      };
+      db.invoices = db.invoices || [];
+      db.invoices.push(invoiceRecord);
+
+      db.orders[orderIndex] = {
+        ...db.orders[orderIndex],
+        status: 'sent',
+        invoiceNo: nextNo,
+        sentAt: new Date().toISOString(),
+        sentStatus: 'shared',
+        sentTo: toEmail,
+        updatedAt: new Date().toISOString()
+      };
+      await saveStoreData(storeWrapper, db);
+
+      return jsonResponse({
+        success: true,
+        invoiceNo: nextNo,
+        message: `Invoice #${nextNo} saved as shared`
+      });
+    }
+
+    // Mode B: 1-Tap Direct Send via Bakery's Gmail Account
+    const settings = { ...DEFAULT_SETTINGS, ...(db.settings || {}) };
+    const { gmailUser, gmailAppPassword, hasGmailConfigured } = getGmailConfig(settings);
+
+    if (!hasGmailConfigured) {
+      return jsonResponse(
+        {
+          error: 'Gmail is not configured yet. Please open Settings ⚙️ and enter your Bakery Gmail address and 16-character Google App Password.',
+          code: 'GMAIL_NOT_CONFIGURED'
+        },
+        400
+      );
+    }
+
+    if (!toEmail) {
+      return jsonResponse({ error: 'Customer email address (To:) is missing.' }, 400);
+    }
+
+    if (!pdfBase64) {
+      return jsonResponse({ error: 'PDF attachment data is missing.' }, 400);
+    }
+
+    const totalStr = grandTotal.toFixed(2);
+    const subject = (settings.emailSubject || DEFAULT_SETTINGS.emailSubject)
+      .replace(/{invoiceNo}/g, nextNo)
+      .replace(/{customer}/g, company)
+      .replace(/{weekEnding}/g, weekEndingFormatted)
+      .replace(/{total}/g, totalStr);
+
+    const bodyText = `Dear ${company},
+
+Please find attached your invoice #${nextNo} for the week ending ${weekEndingFormatted}.
+
+Total due: £${totalStr}
+
+Payment Details:
+Bank: ${settings.businessName || 'Happyland Bakery Ltd'}
+Account Number: ${settings.accountNumber || '30623245'}
+Sort Code: ${settings.sortCode || '20-92-60'}
+
+Thank you for your business,
+${settings.businessName || 'Happyland Bakery Ltd'}`;
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; color: #1e293b; max-width: 600px; line-height: 1.6;">
+        <h2 style="color: #92400e; margin-bottom: 8px;">${settings.businessName || 'Happyland Bakery Ltd'}</h2>
+        <p style="white-space: pre-line; margin-top: 0;">${bodyText.replace(/\n/g, '<br/>')}</p>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+        <p style="font-size: 12px; color: #64748b;">
+          Invoice #${nextNo} attached as PDF: Happyland_Bakery_Invoice_${nextNo}.pdf
+        </p>
+      </div>
+    `;
+
+    try {
+      await sendInvoiceViaGmail({
+        gmailUser,
+        gmailAppPassword,
+        senderName: settings.businessName || 'Happyland Bakery Ltd',
+        toEmail,
+        toName: company,
+        ccEmail: ccEmail,
+        bccEmail: settings.bccEmail || '',
+        subject,
+        textContent: bodyText,
+        htmlContent,
+        attachmentName: `Happyland_Bakery_Invoice_${nextNo}.pdf`,
+        attachmentBase64: pdfBase64
+      });
+
+      const invoiceRecord = {
+        invoiceNo: nextNo,
+        orderId: order.id,
+        company,
+        customerEmail: toEmail,
+        customerCcEmail: ccEmail,
+        customerAddress,
+        weekEnding,
+        weekEndingFormatted,
+        items,
+        grandTotal,
+        pdfBase64,
+        createdAt: new Date().toISOString(),
+        createdBy: auth.role,
+        sentAt: new Date().toISOString(),
+        sentStatus: 'sent',
+        sentTo: toEmail
+      };
+      db.invoices = db.invoices || [];
+      db.invoices.push(invoiceRecord);
+
+      db.orders[orderIndex] = {
+        ...db.orders[orderIndex],
+        status: 'sent',
+        invoiceNo: nextNo,
+        sentAt: new Date().toISOString(),
+        sentStatus: 'sent',
+        sentTo: toEmail,
+        updatedAt: new Date().toISOString()
+      };
+      await saveStoreData(storeWrapper, db);
+
+      return jsonResponse({
+        success: true,
+        invoiceNo: nextNo,
+        sentTo: toEmail,
+        from: gmailUser,
+        message: `✅ Invoice #${nextNo} emailed to ${toEmail}!`
+      });
+    } catch (err) {
+      console.error('Gmail send order error:', err);
+      return jsonResponse({ error: err.message }, 500);
+    }
+  }
+
   // 6. INVOICES
   if (pathname === '/invoices') {
     if (req.method === 'GET') {
@@ -661,6 +994,7 @@ ${settings.businessName || 'Happyland Bakery Ltd'}`;
     db.settings = imported.settings || db.settings;
     db.customers = imported.customers || db.customers;
     db.items = imported.items || db.items;
+    db.orders = imported.orders || db.orders || [];
     db.invoices = imported.invoices || db.invoices;
 
     await saveStoreData(storeWrapper, db);

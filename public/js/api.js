@@ -125,13 +125,85 @@ export const Api = {
           { id: 'item_3', name: 'Lebanese Bread Small', price: 0.30, order: 3, active: true },
           { id: 'item_4', name: 'Lebanese Bread Large', price: 0.50, order: 4, active: true }
         ],
+        orders: [],
         invoices: []
       };
       localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
     }
 
+    cache.orders = cache.orders || [];
+
     if (path === '/bootstrap') {
       return { ...cache, isOffline: true };
+    }
+    if (path.startsWith('/orders') && (!options.method || options.method === 'GET')) {
+      const openOrders = (cache.orders || []).filter(o => o.status === 'open');
+      return { orders: openOrders, isOffline: true };
+    }
+    if (path === '/orders' && options.method === 'POST') {
+      const body = JSON.parse(options.body || '{}');
+      const existingIdx = cache.orders.findIndex(o => o.customerId === body.customerId && o.weekEnding === body.weekEnding && o.status === 'open');
+      if (existingIdx !== -1) {
+        cache.orders[existingIdx] = { ...cache.orders[existingIdx], ...body, updatedAt: new Date().toISOString() };
+        localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
+        return { success: true, order: cache.orders[existingIdx], isOffline: true };
+      }
+      const newOrder = {
+        id: 'order_' + (body.customerId || 'c') + '_' + Date.now(),
+        status: 'open',
+        ...body,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      cache.orders.push(newOrder);
+      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
+      return { success: true, order: newOrder, isOffline: true };
+    }
+    if (path.startsWith('/orders/') && options.method === 'PUT') {
+      const id = path.replace('/orders/', '');
+      const body = JSON.parse(options.body || '{}');
+      const idx = cache.orders.findIndex(o => o.id === id);
+      if (idx !== -1) {
+        cache.orders[idx] = { ...cache.orders[idx], ...body, updatedAt: new Date().toISOString() };
+        localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
+        return { success: true, order: cache.orders[idx], isOffline: true };
+      }
+      return { success: false, error: 'Order not found', isOffline: true };
+    }
+    if (path.startsWith('/orders/') && options.method === 'DELETE') {
+      const id = path.replace('/orders/', '');
+      cache.orders = cache.orders.filter(o => o.id !== id);
+      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
+      return { success: true, isOffline: true };
+    }
+    if (path.startsWith('/orders/') && path.endsWith('/send')) {
+      const id = path.replace('/orders/', '').replace('/send', '');
+      const body = JSON.parse(options.body || '{}');
+      const idx = cache.orders.findIndex(o => o.id === id);
+      const invNo = cache.settings.nextInvoiceNo || 1001;
+      cache.settings.nextInvoiceNo = invNo + 1;
+      const inv = {
+        invoiceNo: invNo,
+        orderId: id,
+        company: body.company || (idx !== -1 ? cache.orders[idx].company : 'Customer'),
+        customerEmail: body.toEmail || '',
+        weekEnding: body.weekEnding || (idx !== -1 ? cache.orders[idx].weekEnding : ''),
+        weekEndingFormatted: body.weekEndingFormatted || '',
+        grandTotal: parseFloat(body.grandTotal || 0),
+        items: body.items || [],
+        createdAt: new Date().toISOString(),
+        sentAt: new Date().toISOString(),
+        sentStatus: body.mode === 'share' ? 'shared' : 'sent'
+      };
+      cache.invoices = cache.invoices || [];
+      cache.invoices.push(inv);
+      if (idx !== -1) {
+        cache.orders[idx].status = 'sent';
+        cache.orders[idx].invoiceNo = invNo;
+        cache.orders[idx].sentAt = new Date().toISOString();
+      }
+      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
+      return { success: true, invoiceNo: invNo, isOffline: true };
     }
     if (path === '/customers' && options.method === 'POST') {
       const body = JSON.parse(options.body || '{}');
@@ -236,6 +308,35 @@ export const Api = {
 
   async testGmail(payload) {
     return this.request('/settings/test-gmail', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  async getOrders(weekEnding = '') {
+    const q = weekEnding ? `?weekEnding=${encodeURIComponent(weekEnding)}` : '';
+    return this.request(`/orders${q}`);
+  },
+
+  async getOrder(orderId) {
+    return this.request(`/orders/${encodeURIComponent(orderId)}`);
+  },
+
+  async saveOrder(orderData) {
+    return this.request('/orders', {
+      method: 'POST',
+      body: JSON.stringify(orderData)
+    });
+  },
+
+  async deleteOrder(orderId) {
+    return this.request(`/orders/${encodeURIComponent(orderId)}`, {
+      method: 'DELETE'
+    });
+  },
+
+  async sendOrder(orderId, payload) {
+    return this.request(`/orders/${encodeURIComponent(orderId)}/send`, {
       method: 'POST',
       body: JSON.stringify(payload)
     });

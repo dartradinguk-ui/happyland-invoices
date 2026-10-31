@@ -19,7 +19,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
   <!-- Mobile Stylesheet -->
-  <link rel="stylesheet" href="/css/styles.css?v=10">
+  <link rel="stylesheet" href="/css/styles.css?v=11">
 </head>
 <body>
 
@@ -126,6 +126,52 @@
 
           <h2 id="entryCustomerTitle" style="font-size:18px; margin-bottom:4px; color:var(--text);">Customer Name</h2>
           <div id="entryCustomerBadge" class="customer-detail-badge" style="margin-bottom:10px;"></div>
+
+          <!-- Week Navigation Bar inside Customer Screen -->
+          <div class="entry-week-bar">
+            <button type="button" id="btnEntryPrevWeek" class="btn-week-nav" title="Previous Week">
+              ◀ Prev
+            </button>
+            <div class="entry-week-center">
+              <div id="entryWeekRangeLabel" class="entry-week-label">This Week: Mon 26 Oct – Sun 1 Nov</div>
+              <div class="entry-week-sublinks">
+                <button type="button" id="btnEntryToggleWeekPicker" class="btn-link-action" style="font-size:11px;">
+                  📅 Pick date
+                </button>
+                <span id="entryWeekSublinkSep" style="color:var(--border);">·</span>
+                <button type="button" id="btnEntryJumpThisWeek" class="btn-link-action" style="font-size:11px; font-weight:700;">
+                  This Week
+                </button>
+              </div>
+            </div>
+            <button type="button" id="btnEntryNextWeek" class="btn-week-nav" title="Next Week">
+              Next ▶
+            </button>
+          </div>
+
+          <!-- Collapsible Date Picker inside Customer Screen -->
+          <div id="entryWeekPickerCollapse" class="entry-week-picker-collapse" style="display:none;">
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="date" id="entryWeekDateInput" class="form-control" style="flex:1; height:38px; font-size:14px;" />
+              <button type="button" id="btnEntryCloseWeekPicker" class="btn-action btn-action-secondary" style="height:38px; font-size:12px; padding:0 12px; white-space:nowrap;">
+                Done
+              </button>
+            </div>
+          </div>
+
+          <!-- Sent Order Alert Notice (shown when an invoice was already sent for this week) -->
+          <div id="entrySentOrderNotice" class="alert alert-info entry-sent-notice" style="display:none; margin:10px 0 6px 0;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:18px;">📄</span>
+              <div>
+                <strong id="entrySentOrderTitle">Invoice already sent</strong>
+                <div id="entrySentOrderSub" style="font-size:11px; opacity:0.9;">This week was completed and billed.</div>
+              </div>
+            </div>
+            <button type="button" id="btnEntryViewHistoryInvoice" class="btn-action btn-action-primary" style="height:32px; padding:0 10px; font-size:12px; white-space:nowrap;">
+              View 👁️
+            </button>
+          </div>
 
           <div class="entry-day-bar">
             <div>
@@ -567,7 +613,7 @@
   </script>
 
   <!-- Application Script (ES Module) -->
-  <script type="module" src="/js/app.js?v=10"></script>
+  <script type="module" src="/js/app.js?v=11"></script>
 
   <!-- Global helper for inline openCustomerModal -->
   <script>

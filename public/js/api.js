@@ -137,8 +137,18 @@ export const Api = {
       return { ...cache, isOffline: true };
     }
     if (path.startsWith('/orders') && (!options.method || options.method === 'GET')) {
-      const openOrders = (cache.orders || []).filter(o => o.status === 'open');
-      return { orders: openOrders, isOffline: true };
+      const qIdx = path.indexOf('?');
+      const params = new URLSearchParams(qIdx !== -1 ? path.slice(qIdx + 1) : '');
+      const weekEnding = params.get('weekEnding');
+      const includeSent = params.get('includeSent') === 'true';
+      let list = cache.orders || [];
+      if (!includeSent) {
+        list = list.filter(o => o.status === 'open');
+      }
+      if (weekEnding) {
+        list = list.filter(o => o.weekEnding === weekEnding);
+      }
+      return { orders: list, isOffline: true };
     }
     if (path === '/orders' && options.method === 'POST') {
       const body = JSON.parse(options.body || '{}');
@@ -313,8 +323,12 @@ export const Api = {
     });
   },
 
-  async getOrders(weekEnding = '') {
-    const q = weekEnding ? `?weekEnding=${encodeURIComponent(weekEnding)}` : '';
+  async getOrders(weekEnding = '', includeSent = false) {
+    const params = new URLSearchParams();
+    if (weekEnding) params.set('weekEnding', weekEnding);
+    if (includeSent) params.set('includeSent', 'true');
+    const qs = params.toString();
+    const q = qs ? `?${qs}` : '';
     return this.request(`/orders${q}`);
   },
 

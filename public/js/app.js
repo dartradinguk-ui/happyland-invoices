@@ -56,6 +56,56 @@ function formatDateDisplay(yyyyMmDd) {
   return yyyyMmDd;
 }
 
+function shiftWeekEnding(weekEndingStr, deltaWeeks) {
+  const parts = (weekEndingStr || getDefaultWeekEnding()).split('-');
+  const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  d.setDate(d.getDate() + (deltaWeeks * 7));
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getWeekEndingForDate(dateOrStr) {
+  let target;
+  if (typeof dateOrStr === 'string' && dateOrStr.includes('-')) {
+    const parts = dateOrStr.split('-');
+    target = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  } else {
+    target = new Date(dateOrStr);
+  }
+  const dayOfWeek = target.getDay(); // 0 is Sunday
+  const daysUntilNextSunday = (7 - dayOfWeek) % 7;
+  target.setDate(target.getDate() + daysUntilNextSunday);
+
+  const year = target.getFullYear();
+  const month = String(target.getMonth() + 1).padStart(2, '0');
+  const day = String(target.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getDateForDayInWeek(weekEndingStr, dayKey) {
+  const parts = (weekEndingStr || getDefaultWeekEnding()).split('-');
+  const sunday = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  const dayIdx = DAYS.indexOf(dayKey); // 0=mon ... 6=sun
+  const offset = (dayIdx !== -1 ? dayIdx : 0) - 6;
+  const target = new Date(sunday);
+  target.setDate(sunday.getDate() + offset);
+  return target;
+}
+
+function getWeekContextLabel(weekEndingDateStr) {
+  const defaultWeek = getDefaultWeekEnding();
+  const range = getWeekRangeText(weekEndingDateStr);
+  if (weekEndingDateStr === defaultWeek) {
+    return { type: 'current', text: `This Week: ${range}` };
+  } else if (weekEndingDateStr < defaultWeek) {
+    return { type: 'past', text: `Past Week: ${range}` };
+  } else {
+    return { type: 'future', text: `Next Week: ${range}` };
+  }
+}
+
 function getWeekRangeText(weekEndingDateStr) {
   if (!weekEndingDateStr) return 'This Week';
   const parts = weekEndingDateStr.split('-');
@@ -184,8 +234,23 @@ function initWeekPicker() {
 
   if (dateInput) {
     dateInput.value = state.activeWeekEnding;
-    dateInput.addEventListener('change', () => {
-      state.activeWeekEnding = dateInput.value;
+    dateInput.addEventListener('change', async () => {
+      const snapped = getWeekEndingForDate(dateInput.value);
+      state.activeWeekEnding = snapped;
+      dateInput.value = snapped;
+      try {
+        const res = await Api.getOrders(snapped, true);
+        if (res && Array.isArray(res.orders)) {
+          res.orders.forEach(remoteOrder => {
+            const existingIdx = state.orders.findIndex(o => o.id === remoteOrder.id || (o.customerId === remoteOrder.customerId && o.weekEnding === remoteOrder.weekEnding));
+            if (existingIdx !== -1) {
+              state.orders[existingIdx] = remoteOrder;
+            } else {
+              state.orders.push(remoteOrder);
+            }
+          });
+        }
+      } catch (e) {}
       renderDeliveriesHome();
     });
   }
@@ -237,6 +302,9 @@ function switchTab(tabName) {
 function getCustomerOrder(customerId, createIfMissing = false) {
   state.orders = state.orders || [];
   let order = state.orders.find(o => o.customerId === customerId && o.weekEnding === state.activeWeekEnding && o.status === 'open');
+  if (!order) {
+    order = state.orders.find(o => o.customerId === customerId && o.weekEnding === state.activeWeekEnding && o.status === 'sent');
+  }
   if (!order && createIfMissing) {
     const cust = state.customers.find(c => c.id === customerId);
     order = {
@@ -500,6 +568,8 @@ function openCustomerDelivery(customerId, dayKey = null) {
   if (titleEl) titleEl.textContent = cust?.name || 'Customer';
 
   updateEntryCustomerBadge(cust);
+  updateEntryWeekNavLabels();
+  checkSentOrderNotice(order);
   updateEntryActiveDayLabel();
   checkYesterdayDelivery(order);
 
@@ -520,6 +590,9 @@ function returnToDeliveriesHome() {
   if (homeView) homeView.style.display = 'block';
   if (stickyBar && state.activeTab === 'invoice') stickyBar.style.display = 'block';
 
+  const homeDateInput = document.getElementById('weekEndingInput');
+  if (homeDateInput) homeDateInput.value = state.activeWeekEnding;
+
   renderDeliveriesHome();
 }
 
@@ -536,12 +609,123 @@ function updateEntryCustomerBadge(cust) {
   badge.innerHTML = `<div>${emailText}${addrText}</div>`;
 }
 
+function updateEntryWeekNavLabels() {
+  const labelEl = document.getElementById('entryWeekRangeLabel');
+  const jumpBtn = document.getElementById('btnEntryJumpThisWeek');
+  const sepEl = document.getElementById('entryWeekSublinkSep');
+  const dateInput = document.getElementById('entryWeekDateInput');
+  const homeDateInput = document.getElementById('weekEndingInput');
+
+  if (dateInput) dateInput.value = state.activeWeekEnding;
+  if (homeDateInput) homeDateInput.value = state.activeWeekEnding;
+
+  const ctx = getWeekContextLabel(state.activeWeekEnding);
+  if (labelEl) {
+    labelEl.textContent = ctx.text;
+    labelEl.className = `entry-week-label is-${ctx.type}`;
+  }
+
+  const isCurrent = state.activeWeekEnding === getDefaultWeekEnding();
+  if (jumpBtn) {
+    jumpBtn.style.display = isCurrent ? 'none' : 'inline';
+  }
+  if (sepEl) {
+    sepEl.style.display = isCurrent ? 'none' : 'inline';
+  }
+}
+
+function checkSentOrderNotice(order) {
+  const noticeEl = document.getElementById('entrySentOrderNotice');
+  const titleEl = document.getElementById('entrySentOrderTitle');
+  const subEl = document.getElementById('entrySentOrderSub');
+  const viewBtn = document.getElementById('btnEntryViewHistoryInvoice');
+
+  if (!noticeEl) return;
+
+  if (order && (order.status === 'sent' || order.invoiceNo)) {
+    noticeEl.style.display = 'flex';
+    if (titleEl) {
+      titleEl.textContent = `Invoice #${order.invoiceNo || ''} has already been sent`;
+    }
+    if (subEl) {
+      const sentDateStr = order.sentAt ? new Date(order.sentAt).toLocaleDateString() : '';
+      subEl.textContent = `Completed & billed${sentDateStr ? ' on ' + sentDateStr : ''}. You can view or re-send in History.`;
+    }
+    if (viewBtn) {
+      viewBtn.onclick = () => {
+        if (order.invoiceNo) {
+          switchTab('history');
+        } else {
+          showWeekBreakdownModal();
+        }
+      };
+    }
+  } else {
+    noticeEl.style.display = 'none';
+  }
+}
+
+async function switchCustomerWeek(newWeekEnding) {
+  if (!newWeekEnding || newWeekEnding === state.activeWeekEnding) return;
+
+  // 1. Save any pending entries for the currently active week
+  await saveActiveOrder(true);
+
+  // 2. Set the new week ending date
+  state.activeWeekEnding = newWeekEnding;
+
+  // 3. Ensure orders for this week are loaded from server if not in memory
+  try {
+    const res = await Api.getOrders(newWeekEnding, true);
+    if (res && Array.isArray(res.orders)) {
+      res.orders.forEach(remoteOrder => {
+        const existingIdx = state.orders.findIndex(o => o.id === remoteOrder.id || (o.customerId === remoteOrder.customerId && o.weekEnding === remoteOrder.weekEnding));
+        if (existingIdx !== -1) {
+          state.orders[existingIdx] = remoteOrder;
+        } else {
+          state.orders.push(remoteOrder);
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Could not fetch orders for week:', newWeekEnding, e);
+  }
+
+  // 4. Load the customer's order for this week
+  const order = getCustomerOrder(state.activeCustomerId, true);
+
+  // 5. Update UI
+  updateEntryWeekNavLabels();
+  updateEntryActiveDayLabel();
+  checkSentOrderNotice(order);
+  checkYesterdayDelivery(order);
+  renderInvoiceItemCards();
+  updateDayPillBadges();
+  updateEntrySummary();
+
+  const rangeText = getWeekRangeText(newWeekEnding);
+  showToast(`Switched to: ${rangeText}`, 'info');
+}
+
+function shiftCustomerWeek(deltaWeeks) {
+  const newWeekEnding = shiftWeekEnding(state.activeWeekEnding, deltaWeeks);
+  switchCustomerWeek(newWeekEnding);
+}
+
 function updateEntryActiveDayLabel() {
   const labelEl = document.getElementById('entryActiveDayLabel');
   if (!labelEl) return;
-  const isToday = state.activeDay === getTodayDayKey();
+  const isCurrentWeek = state.activeWeekEnding === getDefaultWeekEnding();
+  const isToday = isCurrentWeek && state.activeDay === getTodayDayKey();
   const dayName = DAY_FULL_NAMES[state.activeDay];
-  labelEl.textContent = isToday ? `Today: ${dayName}` : `${dayName}`;
+
+  if (isToday) {
+    labelEl.textContent = `Today: ${dayName}`;
+  } else {
+    const targetDate = getDateForDayInWeek(state.activeWeekEnding, state.activeDay);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    labelEl.textContent = `${dayName} (${targetDate.getDate()} ${months[targetDate.getMonth()]})`;
+  }
 }
 
 function checkYesterdayDelivery(order) {
@@ -1146,6 +1330,41 @@ function initActionButtons() {
   document.getElementById('btnBackToHome')?.addEventListener('click', () => {
     saveActiveOrder(true);
     returnToDeliveriesHome();
+  });
+
+  // Customer Screen Week Navigation
+  document.getElementById('btnEntryPrevWeek')?.addEventListener('click', () => {
+    shiftCustomerWeek(-1);
+  });
+
+  document.getElementById('btnEntryNextWeek')?.addEventListener('click', () => {
+    shiftCustomerWeek(1);
+  });
+
+  document.getElementById('btnEntryJumpThisWeek')?.addEventListener('click', () => {
+    switchCustomerWeek(getDefaultWeekEnding());
+  });
+
+  document.getElementById('btnEntryToggleWeekPicker')?.addEventListener('click', () => {
+    const collapse = document.getElementById('entryWeekPickerCollapse');
+    if (!collapse) return;
+    const isHidden = collapse.style.display === 'none' || !collapse.style.display;
+    collapse.style.display = isHidden ? 'block' : 'none';
+  });
+
+  document.getElementById('btnEntryCloseWeekPicker')?.addEventListener('click', () => {
+    const collapse = document.getElementById('entryWeekPickerCollapse');
+    if (collapse) collapse.style.display = 'none';
+  });
+
+  document.getElementById('entryWeekDateInput')?.addEventListener('change', (e) => {
+    const val = e.target.value;
+    if (val) {
+      const snapped = getWeekEndingForDate(val);
+      switchCustomerWeek(snapped);
+      const collapse = document.getElementById('entryWeekPickerCollapse');
+      if (collapse) collapse.style.display = 'none';
+    }
   });
 
   document.getElementById('btnDoneSaveToday')?.addEventListener('click', async () => {
